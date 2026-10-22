@@ -80,9 +80,14 @@ class SecuritySettings:
 
         demo_username = os.getenv("PAHAADCARE_DEMO_USERNAME")
         demo_password_hash = os.getenv("PAHAADCARE_DEMO_PASSWORD_HASH")
+        if demo_enabled and environment in {"development", "test"}:
+            if not demo_username:
+                demo_username = "clinician1"
+            if not demo_password_hash:
+                demo_password_hash = hash_password("demo-password-2026")
         patient_ids = tuple(
             value.strip()
-            for value in os.getenv("PAHAADCARE_DEMO_PATIENT_IDS", "PC-SYNTH01").split(",")
+            for value in os.getenv("PAHAADCARE_DEMO_PATIENT_IDS", "PC-SYNTH01,PC-DEMO01").split(",")
             if value.strip()
         )
         if demo_enabled and (not demo_username or not demo_password_hash):

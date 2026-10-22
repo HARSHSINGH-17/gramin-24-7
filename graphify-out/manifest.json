@@ -12,10 +12,10 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "backend/app/auth.py": {
-    "mtime": 1792666320.439021,
-    "seen": 1792667062.2224221,
-    "ast_hash": "6ae6b7a4fec3e0877aa09d992b5baf81",
-    "semantic_hash": "6ae6b7a4fec3e0877aa09d992b5baf81"
+    "mtime": 1792681937.1405706,
+    "seen": 1792682143.2723897,
+    "ast_hash": "8a45ec90cf6070797ec5d033b10efca7",
+    "semantic_hash": ""
   },
   "backend/app/demo_dashboard.py": {
     "mtime": 1792655719.8319056,

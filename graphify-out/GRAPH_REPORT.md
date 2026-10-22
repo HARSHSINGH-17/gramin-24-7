@@ -1,17 +1,17 @@
 # Graph Report - PahaadCare_Source_Code  (2026-10-22)
 
 ## Corpus Check
-- 57 files · ~71,068 words
+- 57 files · ~71,087 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 5 file(s) not represented in the graph (top: (none) 1, .bat 1, .example 1)
 
 ## Summary
-- 930 nodes · 2543 edges · 36 communities (29 shown, 7 thin omitted)
+- 930 nodes · 2544 edges · 36 communities (29 shown, 7 thin omitted)
 - Extraction: 85% EXTRACTED · 15% INFERRED · 0% AMBIGUOUS · INFERRED: 371 edges (avg confidence: 0.91)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `c25047ca`
+- Built from commit: `f48ed440`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
