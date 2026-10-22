@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pahaadcare.example/schemas/rpm-measurement-event.schema.json",
+  "title": "PahaadCare RPM Measurement Event",
+  "description": "Version 1.0 contract for one vital-sign observation. Demonstration contract; not clinical guidance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "patient_id",
+    "measurement_type",
+    "value",
+    "unit",
+    "measured_at",
+    "source",
+    "is_simulated"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "patient_id": {
+      "type": "string",
+      "pattern": "^PC-[A-Z0-9]{4,32}$"
+    },
+    "measurement_type": {
+      "type": "string",
+      "enum": [
+        "heart_rate",
+        "oxygen_saturation",
+        "body_temperature",
+        "systolic_blood_pressure",
+        "diastolic_blood_pressure"
+      ]
+    },
+    "value": {
+      "type": "number"
+    },
+    "unit": {
+      "type": "string",
+      "enum": ["beats_per_minute", "percent", "celsius", "mmHg"]
+    },
+    "measured_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "received_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "enum": ["device", "health_worker", "patient", "simulator", "import"]
+    },
+    "is_simulated": { "type": "boolean" },
+    "device_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "device_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "model": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "firmware": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "minProperties": 1
+    },
+    "health_worker_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_id"],
+      "properties": {
+        "actor_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "facility_id": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "measurement_type": { "const": "heart_rate" } } },
+      "then": {
+        "properties": {
+          "unit": { "const": "beats_per_minute" },
+          "value": { "type": "number", "minimum": 20, "maximum": 300 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "measurement_type": { "const": "oxygen_saturation" } } },
+      "then": {
+        "properties": {
+          "unit": { "const": "percent" },
+          "value": { "type": "number", "minimum": 0, "maximum": 100 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "measurement_type": { "const": "body_temperature" } } },
+      "then": {
+        "properties": {
+          "unit": { "const": "celsius" },
+          "value": { "type": "number", "minimum": -50, "maximum": 60 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "measurement_type": { "const": "systolic_blood_pressure" } } },
+      "then": {
+        "properties": {
+          "unit": { "const": "mmHg" },
+          "value": { "type": "number", "minimum": 40, "maximum": 300 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "measurement_type": { "const": "diastolic_blood_pressure" } } },
+      "then": {
+        "properties": {
+          "unit": { "const": "mmHg" },
+          "value": { "type": "number", "minimum": 20, "maximum": 200 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "source": { "const": "simulator" } } },
+      "then": { "properties": { "is_simulated": { "const": true } } }
+    }
+  ]
+}

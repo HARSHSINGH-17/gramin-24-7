@@ -1,0 +1,10 @@
+PahaadCare - run in VS Code (only 2 steps)
+
+1. Extract the zip, then in VS Code: File > Open Folder > select THIS folder (the one that contains package.json).
+2. Press Ctrl+Shift+B   (or open Terminal and type:  npm start)
+
+The first time it installs packages (1-2 minutes) and then opens the website in your browser automatically.
+Next time just run npm start again.
+
+No install needed to just view the app: double-click OPEN_THIS_APP.html
+Needs Node.js (https://nodejs.org). Terminal is set to Command Prompt, so no PowerShell error.
