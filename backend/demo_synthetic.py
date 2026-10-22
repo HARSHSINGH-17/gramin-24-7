@@ -7,12 +7,16 @@ from backend.synthetic_vitals import BASE_TIME, SyntheticScenario, generate_scen
 def main() -> None:
     engine = MonitoringEngine(clock=lambda: BASE_TIME + timedelta(minutes=10))
     scenarios = (
-        SyntheticScenario.DEMO,
+        SyntheticScenario.NORMAL,
+        SyntheticScenario.ABNORMAL,
+        SyntheticScenario.MISSING,
         SyntheticScenario.STALE,
         SyntheticScenario.DUPLICATE,
         SyntheticScenario.CONFLICT,
         SyntheticScenario.RECOVERY,
         SyntheticScenario.FUTURE,
+        SyntheticScenario.DEMO,
+        SyntheticScenario.OFFLINE_SYNC,
     )
     for scenario in scenarios:
         for item in generate_scenario(scenario).events:

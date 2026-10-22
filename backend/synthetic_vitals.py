@@ -25,6 +25,7 @@ class SyntheticScenario(str, Enum):
     RECOVERY = "recovery"
     FUTURE = "future"
     DEMO = "demo"
+    OFFLINE_SYNC = "offline_sync"
 
 
 @dataclass(frozen=True)
@@ -127,6 +128,11 @@ def generate_scenario(scenario: SyntheticScenario | str) -> SyntheticSequence:
         return SyntheticSequence(
             selected,
             (_measurement(selected, 0, 78, BASE_TIME + timedelta(days=1)),),
+        )
+    if selected is SyntheticScenario.OFFLINE_SYNC:
+        return SyntheticSequence(
+            selected,
+            (_measurement(selected, 0, 82.5, BASE_TIME + timedelta(minutes=15)),),
         )
 
     demo_measurements = (
