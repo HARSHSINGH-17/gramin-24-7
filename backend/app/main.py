@@ -7,20 +7,37 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
 from pydantic import BaseModel, ConfigDict, Field
 
 from .auth import SecuritySettings, has_patient_access, issue_token, require_role, require_user, verify_password
 from .demo_dashboard import build_demo_dashboard_snapshot
-from .escalation import EscalationEngine
+from .escalation import EscalationEngine, EscalationWorker
 from .models import MeasurementEvent
 from .repository import AlertNotFound, InvalidAlertTransition, SQLiteRepository
 from .store import EventIdConflict
 
-app = FastAPI(title="PahaadCare RPM API", version="1.0.0")
 settings = SecuritySettings.from_environment()
 DEFAULT_DATABASE_PATH = Path(__file__).resolve().parents[1] / "data" / "pahaadcare.sqlite3"
 store = SQLiteRepository(os.environ.get("PAHAADCARE_DB_PATH", DEFAULT_DATABASE_PATH))
 escalation_engine = EscalationEngine(repository=store)
+escalation_worker = EscalationWorker(
+    engine=escalation_engine,
+    interval_seconds=float(os.environ.get("ESCALATION_POLL_INTERVAL_SECONDS", "10.0")),
+    enabled=os.environ.get("ESCALATION_WORKER_ENABLED", "false").lower() in ("true", "1", "yes"),
+)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if escalation_worker.enabled:
+        await escalation_worker.start()
+    yield
+    if escalation_worker.is_running:
+        await escalation_worker.stop()
+
+
+app = FastAPI(title="PahaadCare RPM API", version="1.0.0", lifespan=lifespan)
 is_token_revoked = lambda jti: store.is_token_revoked(jti)
 get_settings = lambda: settings
 app.add_middleware(
@@ -538,4 +555,20 @@ def process_escalations(
             "request_id": request.headers.get("x-request-id", "local-request"),
         },
     )
+
+
+@app.get("/api/v1/escalation/worker/status")
+def get_escalation_worker_status(
+    request: Request,
+    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+) -> dict:
+    return {
+        "enabled": escalation_worker.enabled,
+        "is_running": escalation_worker.is_running,
+        "interval_seconds": escalation_worker.interval_seconds,
+        "last_run_at": escalation_worker.last_run_at.isoformat().replace("+00:00", "Z") if escalation_worker.last_run_at else None,
+        "run_count": escalation_worker.run_count,
+        "request_id": request.headers.get("x-request-id", "local-request"),
+    }
+
 

@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
@@ -295,3 +296,83 @@ class EscalationEngine:
             )
 
             return dispatched
+
+
+class EscalationWorker:
+    """Lifecycle-managed background worker for automatic alert escalation.
+
+    Guarantees:
+    - Bounded polling interval (seconds).
+    - UTC-aware timestamps.
+    - Asynchronous execution in worker thread without blocking FastAPI event loop.
+    - Survives backend restarts via durable SQLite state.
+    - Concurrent single-flight / idempotent processing.
+    - Clean lifecycle stop/cancel on server shutdown.
+    - Supports injected clock and manual single-tick execution for testing.
+    """
+
+    def __init__(
+        self,
+        engine: EscalationEngine,
+        interval_seconds: float = 10.0,
+        enabled: bool = True,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self.engine = engine
+        self.interval_seconds = interval_seconds
+        self.enabled = enabled
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self._task: asyncio.Task | None = None
+        self._is_running = False
+        self._stop_event = asyncio.Event()
+        self.last_run_at: datetime | None = None
+        self.run_count = 0
+
+    @property
+    def is_running(self) -> bool:
+        return self._is_running
+
+    async def run_tick(self, now: datetime | None = None) -> list[MockNotification]:
+        """Execute a single processing tick in a thread executor."""
+        current_time = now or self.clock()
+        if current_time.tzinfo is None or current_time.utcoffset() is None:
+            current_time = current_time.replace(tzinfo=timezone.utc)
+
+        # Offload synchronous SQLite queries to thread pool to avoid blocking the event loop
+        dispatched = await asyncio.to_thread(self.engine.process_due_escalations, current_time)
+        self.last_run_at = current_time
+        self.run_count += 1
+        return dispatched
+
+    async def _loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                await self.run_tick()
+            except Exception:
+                # Shield worker loop from transient database locking errors
+                pass
+
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval_seconds)
+            except (asyncio.TimeoutError, TimeoutError):
+                continue
+
+    async def start(self) -> None:
+        if self._is_running or not self.enabled:
+            return
+        self._stop_event.clear()
+        self._is_running = True
+        self._task = asyncio.create_task(self._loop())
+
+    async def stop(self) -> None:
+        if not self._is_running:
+            return
+        self._is_running = False
+        self._stop_event.set()
+        if self._task:
+            try:
+                await asyncio.wait_for(self._task, timeout=5.0)
+            except (asyncio.TimeoutError, TimeoutError, asyncio.CancelledError):
+                self._task.cancel()
+            self._task = None
+

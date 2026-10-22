@@ -36,9 +36,9 @@
     "semantic_hash": "78370b4cf89c07c566750949af65e3d2"
   },
   "backend/app/main.py": {
-    "mtime": 1792674229.0053768,
-    "seen": 1792675987.2616045,
-    "ast_hash": "c17c1bca1dfd9a79502c42313e591a2f",
+    "mtime": 1792676450.529788,
+    "seen": 1792676943.0780568,
+    "ast_hash": "a3a22cc1eb6d4a8165330da54d6044d7",
     "semantic_hash": ""
   },
   "backend/app/models.py": {
@@ -342,9 +342,9 @@
     "semantic_hash": ""
   },
   "backend/app/escalation.py": {
-    "mtime": 1792675365.9759252,
-    "seen": 1792675987.261597,
-    "ast_hash": "35b4fc1a351d8f2ff2d26b973cab67bf",
+    "mtime": 1792676407.1819918,
+    "seen": 1792676943.0780535,
+    "ast_hash": "6de0fa8266b692181242f78a1cee0d4d",
     "semantic_hash": ""
   },
   "backend/app/notifications.py": {
@@ -357,6 +357,24 @@
     "mtime": 1792675081.058252,
     "seen": 1792675987.2616463,
     "ast_hash": "1a3bfa73d188cfb967b77a9b42fd40f6",
+    "semantic_hash": ""
+  },
+  "backend/tests/test_milestone6_readiness.py": {
+    "mtime": 1792676577.6552453,
+    "seen": 1792676943.0780792,
+    "ast_hash": "2c479295f1cfbf0eadc11cc4679de353",
+    "semantic_hash": ""
+  },
+  "docs/release-readiness.md": {
+    "mtime": 1792676907.0327728,
+    "seen": 1792676943.0781116,
+    "ast_hash": "f661ed477962d5066b9ee7d63eb26a72",
+    "semantic_hash": ""
+  },
+  "docs/rpm-escalation-evidence.md": {
+    "mtime": 1792676057.142121,
+    "seen": 1792676943.0781162,
+    "ast_hash": "bc5ae019b873765a8886b0c479e13777",
     "semantic_hash": ""
   }
 }
