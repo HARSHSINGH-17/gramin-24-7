@@ -1,16 +1,4 @@
 {
-  ".vscode/settings.json": {
-    "mtime": 1792645042.4767425,
-    "seen": 1792667062.2224126,
-    "ast_hash": "0afd4b39f38b9d3b460387df2e07f044",
-    "semantic_hash": "0afd4b39f38b9d3b460387df2e07f044"
-  },
-  ".vscode/tasks.json": {
-    "mtime": 1792645042.4826896,
-    "seen": 1792667062.2224178,
-    "ast_hash": "cbaf2952e7fb02e608c18acc6ebe7049",
-    "semantic_hash": "cbaf2952e7fb02e608c18acc6ebe7049"
-  },
   "backend/__init__.py": {
     "mtime": 1792649798.5508065,
     "seen": 1792667062.2224202,
@@ -137,12 +125,6 @@
     "ast_hash": "668602c6fa70343de92ccb7219c7709a",
     "semantic_hash": "668602c6fa70343de92ccb7219c7709a"
   },
-  "fix_browser_test.py": {
-    "mtime": 1792657709.4974053,
-    "seen": 1792667062.2224402,
-    "ast_hash": "ffc1aa90cfa72daa69e6678eb1b70f76",
-    "semantic_hash": "ffc1aa90cfa72daa69e6678eb1b70f76"
-  },
   "package.json": {
     "mtime": 1792645042.3795002,
     "seen": 1792667062.222441,
@@ -214,5 +196,89 @@
     "seen": 1792667062.2224507,
     "ast_hash": "0ea98843bd15de2d217e4eca3f1fe70d",
     "semantic_hash": "0ea98843bd15de2d217e4eca3f1fe70d"
+  },
+  "HOW_TO_RUN.txt": {
+    "mtime": 1792645042.363897,
+    "seen": 1792669224.2939823,
+    "ast_hash": "d3d22e5db9a10c162b625f35def05a95",
+    "semantic_hash": ""
+  },
+  "OPEN_THIS_APP.html": {
+    "mtime": 1792645042.3357847,
+    "seen": 1792669224.293984,
+    "ast_hash": "32f85f31d8a511ba91d366943cef5ddf",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1792653875.930347,
+    "seen": 1792669224.2939854,
+    "ast_hash": "154393d7d271e324510ef6098794073a",
+    "semantic_hash": ""
+  },
+  "backend/README.md": {
+    "mtime": 1792666998.1341188,
+    "seen": 1792669224.2939863,
+    "ast_hash": "2b1bc163a4ad151ec94f39617ef7719c",
+    "semantic_hash": ""
+  },
+  "backend/requirements-dev.txt": {
+    "mtime": 1792656194.6134703,
+    "seen": 1792669224.2939873,
+    "ast_hash": "e39c1896a0b8af4639a20fbae3ad7863",
+    "semantic_hash": ""
+  },
+  "backend/requirements.txt": {
+    "mtime": 1792653875.878737,
+    "seen": 1792669224.293988,
+    "ast_hash": "4afcdbf1f5bfb727e262610665774a00",
+    "semantic_hash": ""
+  },
+  "docs/rpm-api-contract.md": {
+    "mtime": 1792666939.6454802,
+    "seen": 1792669224.2939892,
+    "ast_hash": "89901624221f0635c88468c991f9cd6f",
+    "semantic_hash": ""
+  },
+  "docs/rpm-architecture.md": {
+    "mtime": 1792649543.579398,
+    "seen": 1792669224.2939901,
+    "ast_hash": "1f1b015a572d147e43fa5ee2ec11a71a",
+    "semantic_hash": ""
+  },
+  "docs/rpm-event-contract.md": {
+    "mtime": 1792650552.1915374,
+    "seen": 1792669224.2939909,
+    "ast_hash": "bf7d8e9423756ea37ece246f8775f7ba",
+    "semantic_hash": ""
+  },
+  "docs/rpm-testing-strategy.md": {
+    "mtime": 1792667015.4822097,
+    "seen": 1792669224.293992,
+    "ast_hash": "3016f6bf8d5b50f635a82ab353969761",
+    "semantic_hash": ""
+  },
+  "docs/security.md": {
+    "mtime": 1792657821.576205,
+    "seen": 1792669224.2939932,
+    "ast_hash": "d03ac05588c64168bbd422f8a5368d3e",
+    "semantic_hash": ""
+  },
+  "docs/unresolved-decisions.md": {
+    "mtime": 1792666980.4045348,
+    "seen": 1792669224.293994,
+    "ast_hash": "c16158db3e1a2461915a3dc577a288bd",
+    "semantic_hash": ""
+  },
+  "index.html": {
+    "mtime": 1792645042.324219,
+    "seen": 1792669224.293995,
+    "ast_hash": "7b49be2bc988219e5b7c9e3753d1dcff",
+    "semantic_hash": ""
+  },
+  "public/pahaadcare-icon.svg": {
+    "mtime": 1792645042.4650095,
+    "seen": 1792669224.2939959,
+    "ast_hash": "bd568e616f4fa442c13968b394169921",
+    "semantic_hash": ""
   }
 }
