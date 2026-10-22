@@ -319,3 +319,55 @@ export async function syncBatchEvents(events, { signal = null, onUnauthorized = 
     onUnauthorized,
   })
 }
+
+export function getStoredUser() {
+  const token = getStoredToken()
+  if (!token) return null
+  try {
+    const parts = token.split('.')
+    if (parts.length === 3) {
+      const base64Url = parts[1]
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+      const jsonPayload = decodeURIComponent(
+        atob(base64)
+          .split('')
+          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join('')
+      )
+      const payload = JSON.parse(jsonPayload)
+      return {
+        username: payload.sub,
+        role: payload.role,
+        patient_ids: payload.patient_ids,
+      }
+    }
+  } catch {}
+  return null
+}
+
+export async function fetchEscalationPolicies({ signal = null, onUnauthorized = null } = {}) {
+  return rpmRequest('/api/v1/escalation/policies', {
+    method: 'GET',
+    signal,
+    onUnauthorized,
+  })
+}
+
+export async function fetchAlertEscalation(alertId, { signal = null, onUnauthorized = null } = {}) {
+  if (!alertId) throw new Error('alertId is required')
+  return rpmRequest(`/api/v1/alerts/${encodeURIComponent(alertId)}/escalations`, {
+    method: 'GET',
+    signal,
+    onUnauthorized,
+  })
+}
+
+export async function triggerEscalationProcess(body = {}, { signal = null, onUnauthorized = null } = {}) {
+  return rpmRequest('/api/v1/escalation/process', {
+    method: 'POST',
+    body,
+    signal,
+    onUnauthorized,
+  })
+}
+

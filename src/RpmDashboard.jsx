@@ -23,6 +23,7 @@ import {
   fetchPatients,
   fetchPatientMeasurements,
   fetchAlerts,
+  fetchAlertEscalation,
   acknowledgeAlert,
   resolveAlert,
 } from './rpmApi'
@@ -336,6 +337,8 @@ export default function RpmDashboard() {
   const [actionKey, setActionKey] = React.useState('')
   const [actionNote, setActionNote] = React.useState('')
   const [showNoteInputForAlert, setShowNoteInputForAlert] = React.useState(null)
+  const [alertEscalations, setAlertEscalations] = React.useState({})
+  const [expandedAlerts, setExpandedAlerts] = React.useState({})
 
   // Milestone 3: Offline Synchronization & Queue state
   const [syncState, setSyncState] = React.useState({
@@ -438,6 +441,24 @@ export default function RpmDashboard() {
         setPatients(patientList)
         setAlerts(alertList)
         setMeasurementsByPatient(measurementMap)
+
+        // Fetch escalation status and mock notifications for alerts
+        const escMap = {}
+        await Promise.all(
+          alertList.map(async (alert) => {
+            try {
+              const esc = await fetchAlertEscalation(alert.alert_id, {
+                signal,
+                onUnauthorized: handleUnauthorized,
+              })
+              if (esc) {
+                escMap[alert.alert_id] = esc
+              }
+            } catch {}
+          })
+        )
+        setAlertEscalations(escMap)
+
         setError('')
         setLastRefresh(new Date())
       } catch (err) {
@@ -755,6 +776,15 @@ export default function RpmDashboard() {
                 attention required
               </span>
             )}
+            {syncState.queueSummary?.foreignPending > 0 && (
+              <span
+                className="rpm-sync-pill foreign-alert"
+                title="Preserved offline events belonging to a different account. Not synchronized under this session."
+              >
+                <AlertTriangle size={12} />
+                <strong>{syncState.queueSummary.foreignPending}</strong> other account (preserved)
+              </span>
+            )}
             <span className="rpm-sync-pill">
               Last sync {formatTime(syncState.lastSyncTime)}
             </span>
@@ -999,13 +1029,32 @@ export default function RpmDashboard() {
                         alert.status === 'open' ? 'acknowledge' : 'resolve'
                       }`
 
+                      const esc = alertEscalations[alert.alert_id]
+                      const waitingMinutes = Math.max(
+                        0,
+                        Math.floor((new Date().getTime() - new Date(alert.created_at).getTime()) / 60000)
+                      )
+
                       return (
                         <div className="rpm-alert-card" key={alert.alert_id}>
                           <span className={`rpm-severity rpm-severity-${alert.severity}`}>
                             {alert.severity}
                           </span>
                           <div className="rpm-alert-main">
-                            <strong>{alert.reason?.code || alert.category}</strong>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <strong>{alert.reason?.code || alert.category}</strong>
+                              {alert.status === 'acknowledged' ? (
+                                <span className="rpm-escalation-pill stopped">Ack Stopped</span>
+                              ) : alert.status === 'resolved' ? (
+                                <span className="rpm-escalation-pill stopped">Resolved</span>
+                              ) : esc?.current_level === 1 ? (
+                                <span className="rpm-escalation-pill level-1">Level 1: CHW Notified (simulated)</span>
+                              ) : esc?.current_level === 2 ? (
+                                <span className="rpm-escalation-pill level-2">Level 2: Supervisor Escalated (simulated)</span>
+                              ) : (
+                                <span className="rpm-escalation-pill level-0">Pending Escalation</span>
+                              )}
+                            </div>
                             <span>
                               {alert.patient_id} ·{' '}
                               {relatedEvent
@@ -1016,6 +1065,49 @@ export default function RpmDashboard() {
                               {formatTime(relatedEvent?.measured_at || alert.created_at)} ·{' '}
                               {alert.status?.toUpperCase()}
                             </small>
+                            <div className="rpm-escalation-meta">
+                              <span>Awaiting ack: {waitingMinutes}m</span>
+                              {esc?.next_due_at && (
+                                <span> · Next escalation: {formatTime(esc.next_due_at)}</span>
+                              )}
+                              <span> · <span className="rpm-simulated-tag">SIMULATED NOTIFICATIONS</span></span>
+                            </div>
+                            {esc?.notifications?.length > 0 && (
+                              <div>
+                                <button
+                                  type="button"
+                                  className="rpm-notif-drawer-toggle"
+                                  onClick={() =>
+                                    setExpandedAlerts((prev) => ({
+                                      ...prev,
+                                      [alert.alert_id]: !prev[alert.alert_id],
+                                    }))
+                                  }
+                                >
+                                  {expandedAlerts[alert.alert_id]
+                                    ? 'Hide simulated notification history'
+                                    : `Simulated notifications (${esc.notifications.length})`}
+                                </button>
+                                {expandedAlerts[alert.alert_id] && (
+                                  <div className="rpm-notif-history">
+                                    {esc.notifications.map((n) => (
+                                      <div className="rpm-notif-card" key={n.notification_id}>
+                                        <div className="rpm-notif-header">
+                                          <span>
+                                            Level {n.escalation_level} · {n.recipient_role} ({n.channel})
+                                          </span>
+                                          <span className={`rpm-notif-delivery ${n.delivery_status}`}>
+                                            {n.delivery_status} (simulated)
+                                          </span>
+                                          <span>{formatTime(n.attempted_at)}</span>
+                                        </div>
+                                        <div className="rpm-notif-body">{n.message_body}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                             {showNoteInputForAlert === alert.alert_id && (
                               <div style={{ marginTop: '6px' }}>
                                 <input

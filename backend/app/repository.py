@@ -1,7 +1,7 @@
 import base64
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -10,7 +10,18 @@ from typing import Protocol
 from uuid import UUID
 
 from .auth import has_patient_access
-from .models import Alert, AlertStatus, MeasurementEvent
+from .models import (
+    Alert,
+    AlertEscalationState,
+    AlertSeverity,
+    AlertStatus,
+    EscalationPolicy,
+    EscalationRole,
+    EscalationStatus,
+    MeasurementEvent,
+    MockNotification,
+    NotificationDeliveryStatus,
+)
 from .monitoring import DEMO_THRESHOLDS, DemonstrationThreshold, evaluate_demo_threshold, validate_thresholds
 from .store import EventIdConflict, EventSubmission
 
@@ -119,6 +130,60 @@ class SQLiteRepository:
                     created_at TEXT NOT NULL,
                     is_simulated INTEGER NOT NULL CHECK (is_simulated IN (0, 1))
                 );
+
+                CREATE TABLE IF NOT EXISTS escalation_policies (
+                    policy_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    category TEXT,
+                    min_severity TEXT NOT NULL,
+                    initial_target_role TEXT NOT NULL,
+                    escalation_delay_seconds INTEGER NOT NULL,
+                    subsequent_target_role TEXT,
+                    max_attempts INTEGER NOT NULL DEFAULT 3,
+                    retry_delay_seconds INTEGER NOT NULL DEFAULT 60,
+                    stop_on_acknowledge INTEGER NOT NULL DEFAULT 1,
+                    stop_on_resolve INTEGER NOT NULL DEFAULT 1,
+                    is_demo INTEGER NOT NULL DEFAULT 1
+                );
+
+                CREATE TABLE IF NOT EXISTS alert_escalations (
+                    alert_id TEXT PRIMARY KEY REFERENCES alerts(alert_id) ON DELETE CASCADE,
+                    policy_id TEXT NOT NULL REFERENCES escalation_policies(policy_id),
+                    patient_id TEXT NOT NULL,
+                    current_level INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL CHECK (status IN ('pending', 'escalated', 'acknowledged_stopped', 'resolved_stopped', 'max_reached')),
+                    created_at TEXT NOT NULL,
+                    next_due_at TEXT,
+                    last_escalated_at TEXT,
+                    attempts_count INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS mock_notifications (
+                    notification_id TEXT PRIMARY KEY,
+                    alert_id TEXT NOT NULL REFERENCES alerts(alert_id) ON DELETE CASCADE,
+                    patient_id TEXT NOT NULL,
+                    escalation_level INTEGER NOT NULL,
+                    recipient_role TEXT NOT NULL,
+                    recipient_target TEXT NOT NULL,
+                    channel TEXT NOT NULL,
+                    message_body TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    attempted_at TEXT NOT NULL,
+                    delivery_status TEXT NOT NULL CHECK (delivery_status IN ('delivered', 'failed', 'retrying')),
+                    retry_count INTEGER NOT NULL DEFAULT 0,
+                    failure_reason TEXT,
+                    is_simulated INTEGER NOT NULL CHECK (is_simulated IN (0, 1))
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_alert_escalations_due
+                    ON alert_escalations (status, next_due_at);
+                CREATE INDEX IF NOT EXISTS idx_alert_escalations_patient
+                    ON alert_escalations (patient_id);
+                CREATE INDEX IF NOT EXISTS idx_mock_notifications_alert
+                    ON mock_notifications (alert_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_mock_notifications_patient
+                    ON mock_notifications (patient_id);
                 """
             )
             now_iso = self._iso(datetime.now(timezone.utc))
@@ -130,6 +195,18 @@ class SQLiteRepository:
                     ('PC-DEMO01', 'Demo Patient', 'active', ?, 1)
                 """,
                 (now_iso, now_iso),
+            )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO escalation_policies (
+                    policy_id, name, category, min_severity, initial_target_role,
+                    escalation_delay_seconds, subsequent_target_role, max_attempts,
+                    retry_delay_seconds, stop_on_acknowledge, stop_on_resolve, is_demo
+                ) VALUES
+                ('policy-critical', 'Critical Demo Policy (5m CHW -> Supervisor)', NULL, 'critical', 'community_health_worker', 300, 'supervisor', 3, 60, 1, 1, 1),
+                ('policy-high', 'High Severity Demo Policy (15m CHW -> Supervisor)', NULL, 'high', 'community_health_worker', 900, 'supervisor', 3, 120, 1, 1, 1),
+                ('policy-default', 'Standard Warning Demo Policy (30m CHW -> Supervisor)', NULL, 'medium', 'community_health_worker', 1800, 'supervisor', 2, 180, 1, 1, 1)
+                """
             )
             migration = connection.execute(
                 "SELECT MAX(version) AS version FROM schema_migrations"
@@ -310,9 +387,18 @@ class SQLiteRepository:
                 """,
                 (self._iso(acknowledged_at), actor_id, note, str(alert_id)),
             )
+            # Stop pending escalation if policy specifies stop_on_acknowledge
+            connection.execute(
+                """
+                UPDATE alert_escalations
+                SET status = 'acknowledged_stopped', next_due_at = NULL, updated_at = ?
+                WHERE alert_id = ? AND status IN ('pending', 'escalated')
+                """,
+                (self._iso(acknowledged_at), str(alert_id)),
+            )
             self._write_audit(
                 connection, actor_id, "alert_acknowledge", alert_id, True,
-                {"note_present": note is not None},
+                {"note_present": note is not None, "escalation_stopped": True, "acknowledged_at": self._iso(acknowledged_at)},
             )
             return self._alert_from_row(self._alert_row(connection, alert_id))
 
@@ -355,9 +441,18 @@ class SQLiteRepository:
                 """,
                 (self._iso(resolved_at), actor_id, resolution_code, note, str(alert_id)),
             )
+            # Stop pending escalation if policy specifies stop_on_resolve
+            connection.execute(
+                """
+                UPDATE alert_escalations
+                SET status = 'resolved_stopped', next_due_at = NULL, updated_at = ?
+                WHERE alert_id = ? AND status IN ('pending', 'escalated', 'acknowledged_stopped')
+                """,
+                (self._iso(resolved_at), str(alert_id)),
+            )
             self._write_audit(
                 connection, actor_id, "alert_resolve", alert_id, True,
-                {"resolution_code": resolution_code, "note_present": note is not None},
+                {"resolution_code": resolution_code, "note_present": note is not None, "escalation_stopped": True, "resolved_at": self._iso(resolved_at)},
             )
             return self._alert_from_row(self._alert_row(connection, alert_id))
 
@@ -751,6 +846,43 @@ class SQLiteRepository:
                 alert.status.value,
             ),
         )
+
+        # Select matching escalation policy
+        policy_row = connection.execute(
+            """
+            SELECT * FROM escalation_policies
+            WHERE (category = ? OR category IS NULL)
+              AND min_severity = ?
+            ORDER BY CASE WHEN category = ? THEN 1 ELSE 2 END
+            LIMIT 1
+            """,
+            (alert.category.value, alert.severity.value, alert.category.value),
+        ).fetchone()
+
+        if policy_row is None:
+            policy_row = connection.execute(
+                """
+                SELECT * FROM escalation_policies
+                WHERE policy_id = ?
+                """,
+                ("policy-critical" if alert.severity == AlertSeverity.CRITICAL else ("policy-high" if alert.severity == AlertSeverity.HIGH else "policy-default"),),
+            ).fetchone()
+
+        policy_id = policy_row["policy_id"] if policy_row else "policy-default"
+        delay_seconds = int(policy_row["escalation_delay_seconds"]) if policy_row else 1800
+        next_due = alert.created_at + timedelta(seconds=delay_seconds)
+        next_due_iso = self._iso(next_due)
+        created_at_iso = self._iso(alert.created_at)
+
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO alert_escalations (
+                alert_id, policy_id, patient_id, current_level, status,
+                created_at, next_due_at, last_escalated_at, attempts_count, updated_at
+            ) VALUES (?, ?, ?, 0, 'pending', ?, ?, NULL, 0, ?)
+            """,
+            (str(alert.alert_id), policy_id, alert.patient_id, created_at_iso, next_due_iso, created_at_iso),
+        )
         return alert
 
     @staticmethod
@@ -888,3 +1020,226 @@ class SQLiteRepository:
     @classmethod
     def _payload_hash(cls, event: MeasurementEvent) -> str:
         return hashlib.sha256(cls._payload_json(event).encode("utf-8")).hexdigest()
+
+    def list_escalation_policies(self) -> list[EscalationPolicy]:
+        with self._connection() as connection:
+            rows = connection.execute("SELECT * FROM escalation_policies ORDER BY min_severity DESC").fetchall()
+            return [self._policy_from_row(r) for r in rows]
+
+    def get_escalation_policy(self, policy_id: str) -> EscalationPolicy | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM escalation_policies WHERE policy_id = ?",
+                (policy_id,),
+            ).fetchone()
+            return self._policy_from_row(row) if row else None
+
+    def get_alert_escalation(self, alert_id: UUID) -> AlertEscalationState | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM alert_escalations WHERE alert_id = ?",
+                (str(alert_id),),
+            ).fetchone()
+            if row is None:
+                return None
+            notif_rows = connection.execute(
+                "SELECT * FROM mock_notifications WHERE alert_id = ? ORDER BY created_at ASC",
+                (str(alert_id),),
+            ).fetchall()
+            notifications = [self._notification_from_row(n) for n in notif_rows]
+            return self._escalation_from_row(row, notifications)
+
+    def record_notification(
+        self, notification: MockNotification, connection: sqlite3.Connection | None = None
+    ) -> MockNotification:
+        if connection is not None:
+            return self._record_notification_with_conn(connection, notification)
+        with self._transaction() as conn:
+            return self._record_notification_with_conn(conn, notification)
+
+    def _record_notification_with_conn(
+        self, connection: sqlite3.Connection, notification: MockNotification
+    ) -> MockNotification:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO mock_notifications (
+                notification_id, alert_id, patient_id, escalation_level,
+                recipient_role, recipient_target, channel, message_body,
+                created_at, attempted_at, delivery_status, retry_count,
+                failure_reason, is_simulated
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(notification.notification_id),
+                str(notification.alert_id),
+                notification.patient_id,
+                notification.escalation_level,
+                notification.recipient_role.value if hasattr(notification.recipient_role, "value") else str(notification.recipient_role),
+                notification.recipient_target,
+                notification.channel,
+                notification.message_body,
+                self._iso(notification.created_at),
+                self._iso(notification.attempted_at),
+                notification.delivery_status.value if hasattr(notification.delivery_status, "value") else str(notification.delivery_status),
+                notification.retry_count,
+                notification.failure_reason,
+                int(notification.is_simulated),
+            ),
+        )
+        self._write_audit(
+            connection,
+            "system",
+            "mock_notification_dispatched",
+            notification.alert_id,
+            notification.delivery_status in (NotificationDeliveryStatus.DELIVERED, "delivered"),
+            {
+                "notification_id": str(notification.notification_id),
+                "escalation_level": notification.escalation_level,
+                "recipient_role": str(notification.recipient_role.value if hasattr(notification.recipient_role, "value") else notification.recipient_role),
+                "delivery_status": str(notification.delivery_status.value if hasattr(notification.delivery_status, "value") else notification.delivery_status),
+                "retry_count": notification.retry_count,
+            },
+        )
+        return notification
+
+    def list_notifications(
+        self, alert_id: UUID | None = None, patient_id: str | None = None
+    ) -> list[MockNotification]:
+        with self._connection() as connection:
+            clauses = []
+            params: list[object] = []
+            if alert_id is not None:
+                clauses.append("alert_id = ?")
+                params.append(str(alert_id))
+            if patient_id is not None:
+                clauses.append("patient_id = ?")
+                params.append(patient_id)
+            where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+            rows = connection.execute(
+                f"SELECT * FROM mock_notifications{where} ORDER BY created_at DESC",
+                params,
+            ).fetchall()
+            return [self._notification_from_row(r) for r in rows]
+
+    def find_due_escalations(self, now: datetime) -> list[sqlite3.Row]:
+        with self._connection() as connection:
+            now_str = self._iso(now)
+            return list(
+                connection.execute(
+                    """
+                    SELECT e.*, p.name AS policy_name, p.initial_target_role, p.subsequent_target_role,
+                           p.escalation_delay_seconds, p.max_attempts, p.retry_delay_seconds,
+                           p.stop_on_acknowledge, p.stop_on_resolve
+                    FROM alert_escalations e
+                    JOIN escalation_policies p ON e.policy_id = p.policy_id
+                    WHERE e.status IN ('pending', 'escalated')
+                      AND e.next_due_at IS NOT NULL
+                      AND e.next_due_at <= ?
+                    ORDER BY e.next_due_at ASC
+                    """,
+                    (now_str,),
+                )
+            )
+
+    def update_escalation_state(
+        self,
+        alert_id: UUID,
+        current_level: int,
+        status: str | EscalationStatus,
+        next_due_at: datetime | None,
+        last_escalated_at: datetime | None,
+        attempts_count: int,
+        actor_id: str = "system",
+    ) -> None:
+        status_val = status.value if hasattr(status, "value") else str(status)
+        now_dt = self._trusted_time()
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE alert_escalations
+                SET current_level = ?, status = ?, next_due_at = ?, last_escalated_at = ?, attempts_count = ?, updated_at = ?
+                WHERE alert_id = ?
+                """,
+                (
+                    current_level,
+                    status_val,
+                    self._iso(next_due_at) if next_due_at else None,
+                    self._iso(last_escalated_at) if last_escalated_at else None,
+                    attempts_count,
+                    self._iso(now_dt),
+                    str(alert_id),
+                ),
+            )
+            self._write_audit(
+                connection,
+                actor_id,
+                "escalation_state_updated",
+                alert_id,
+                True,
+                {
+                    "current_level": current_level,
+                    "status": status_val,
+                    "attempts_count": attempts_count,
+                    "next_due_at": self._iso(next_due_at) if next_due_at else None,
+                },
+            )
+
+    @staticmethod
+    def _parse_iso(val: str | None) -> datetime | None:
+        if val is None:
+            return None
+        return datetime.fromisoformat(val.replace("Z", "+00:00"))
+
+    @staticmethod
+    def _policy_from_row(row: sqlite3.Row) -> EscalationPolicy:
+        return EscalationPolicy.model_validate({
+            "policy_id": row["policy_id"],
+            "name": row["name"],
+            "category": row["category"],
+            "min_severity": row["min_severity"],
+            "initial_target_role": row["initial_target_role"],
+            "escalation_delay_seconds": row["escalation_delay_seconds"],
+            "subsequent_target_role": row["subsequent_target_role"],
+            "max_attempts": row["max_attempts"],
+            "retry_delay_seconds": row["retry_delay_seconds"],
+            "stop_on_acknowledge": bool(row["stop_on_acknowledge"]),
+            "stop_on_resolve": bool(row["stop_on_resolve"]),
+            "is_demo": bool(row["is_demo"]),
+        })
+
+    @staticmethod
+    def _notification_from_row(row: sqlite3.Row) -> MockNotification:
+        return MockNotification.model_validate({
+            "notification_id": row["notification_id"],
+            "alert_id": row["alert_id"],
+            "patient_id": row["patient_id"],
+            "escalation_level": row["escalation_level"],
+            "recipient_role": row["recipient_role"],
+            "recipient_target": row["recipient_target"],
+            "channel": row["channel"],
+            "message_body": row["message_body"],
+            "created_at": SQLiteRepository._parse_iso(row["created_at"]),
+            "attempted_at": SQLiteRepository._parse_iso(row["attempted_at"]),
+            "delivery_status": row["delivery_status"],
+            "retry_count": row["retry_count"],
+            "failure_reason": row["failure_reason"],
+            "is_simulated": bool(row["is_simulated"]),
+        })
+
+    @staticmethod
+    def _escalation_from_row(
+        row: sqlite3.Row, notifications: list[MockNotification]
+    ) -> AlertEscalationState:
+        return AlertEscalationState.model_validate({
+            "alert_id": row["alert_id"],
+            "policy_id": row["policy_id"],
+            "patient_id": row["patient_id"],
+            "current_level": row["current_level"],
+            "status": row["status"],
+            "created_at": SQLiteRepository._parse_iso(row["created_at"]),
+            "next_due_at": SQLiteRepository._parse_iso(row["next_due_at"]),
+            "last_escalated_at": SQLiteRepository._parse_iso(row["last_escalated_at"]),
+            "attempts_count": row["attempts_count"],
+            "updated_at": SQLiteRepository._parse_iso(row["updated_at"]),
+            "notifications": [n.model_dump(mode="json") for n in notifications],
+        })

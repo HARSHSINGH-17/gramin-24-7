@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .auth import SecuritySettings, has_patient_access, issue_token, require_role, require_user, verify_password
 from .demo_dashboard import build_demo_dashboard_snapshot
+from .escalation import EscalationEngine
 from .models import MeasurementEvent
 from .repository import AlertNotFound, InvalidAlertTransition, SQLiteRepository
 from .store import EventIdConflict
@@ -19,6 +20,7 @@ app = FastAPI(title="PahaadCare RPM API", version="1.0.0")
 settings = SecuritySettings.from_environment()
 DEFAULT_DATABASE_PATH = Path(__file__).resolve().parents[1] / "data" / "pahaadcare.sqlite3"
 store = SQLiteRepository(os.environ.get("PAHAADCARE_DB_PATH", DEFAULT_DATABASE_PATH))
+escalation_engine = EscalationEngine(repository=store)
 is_token_revoked = lambda jti: store.is_token_revoked(jti)
 get_settings = lambda: settings
 app.add_middleware(
@@ -55,6 +57,12 @@ class SyncBatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     events: list[MeasurementEvent] = Field(min_length=1, max_length=100)
+
+
+class ProcessEscalationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    now: datetime | None = None
 
 
 def error_response(
@@ -454,3 +462,80 @@ def sync_events(
             "request_id": request.headers.get("x-request-id", "local-request"),
         },
     )
+
+
+@app.get("/api/v1/escalation/policies")
+def list_escalation_policies(
+    request: Request,
+    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+) -> dict:
+    policies = store.list_escalation_policies()
+    return {
+        "items": [p.model_dump(mode="json") for p in policies],
+        "request_id": request.headers.get("x-request-id", "local-request"),
+    }
+
+
+@app.get("/api/v1/alerts/{alert_id}/escalations")
+def get_alert_escalations(
+    alert_id: UUID,
+    request: Request,
+    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+) -> JSONResponse:
+    try:
+        alert = store.get_alert(alert_id)
+    except AlertNotFound:
+        return error_response(
+            "not_found",
+            "Alert was not found.",
+            [{"field": "alert_id", "reason": "unknown_alert_id"}],
+            request,
+            404,
+        )
+
+    if not has_patient_access(user, alert.patient_id):
+        store.record_audit(
+            str(user["sub"]),
+            "alert_escalation_read",
+            alert_id,
+            False,
+            {"patient_id": alert.patient_id, "reason": "patient_scope_denied"},
+        )
+        raise HTTPException(status_code=403, detail="Patient access denied")
+
+    escalation = store.get_alert_escalation(alert_id)
+    if escalation is None:
+        return error_response(
+            "not_found",
+            "Escalation state not found for alert.",
+            [{"field": "alert_id", "reason": "no_escalation_registered"}],
+            request,
+            404,
+        )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            **escalation.model_dump(mode="json"),
+            "request_id": request.headers.get("x-request-id", "local-request"),
+        },
+    )
+
+
+@app.post("/api/v1/escalation/process")
+def process_escalations(
+    request: Request,
+    body: ProcessEscalationRequest | None = None,
+    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+) -> JSONResponse:
+    now_dt = body.now if body else None
+    dispatched = escalation_engine.process_due_escalations(now=now_dt)
+    return JSONResponse(
+        status_code=200,
+        content={
+            "processed_count": len(dispatched),
+            "notifications": [n.model_dump(mode="json") for n in dispatched],
+            "request_id": request.headers.get("x-request-id", "local-request"),
+        },
+    )
+

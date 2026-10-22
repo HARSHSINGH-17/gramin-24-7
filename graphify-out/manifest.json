@@ -36,16 +36,16 @@
     "semantic_hash": "78370b4cf89c07c566750949af65e3d2"
   },
   "backend/app/main.py": {
-    "mtime": 1792666674.6135447,
-    "seen": 1792667062.222426,
-    "ast_hash": "60817c0d66e9c95bb9445939609579a0",
-    "semantic_hash": "60817c0d66e9c95bb9445939609579a0"
+    "mtime": 1792674229.0053768,
+    "seen": 1792675987.2616045,
+    "ast_hash": "c17c1bca1dfd9a79502c42313e591a2f",
+    "semantic_hash": ""
   },
   "backend/app/models.py": {
-    "mtime": 1792655719.8414738,
-    "seen": 1792667062.222427,
-    "ast_hash": "4c663e59fe18c04339b9d8e6c07f9a85",
-    "semantic_hash": "4c663e59fe18c04339b9d8e6c07f9a85"
+    "mtime": 1792673601.560001,
+    "seen": 1792675987.2616072,
+    "ast_hash": "7e5cab2a7125c5069ef938f4abf6568b",
+    "semantic_hash": ""
   },
   "backend/app/monitoring.py": {
     "mtime": 1792655719.8468893,
@@ -54,10 +54,10 @@
     "semantic_hash": "88be3fc70bc54dd03364b764e738dbbe"
   },
   "backend/app/repository.py": {
-    "mtime": 1792666760.0782824,
-    "seen": 1792667062.2224286,
-    "ast_hash": "e21f6bb2a9fa3812f28b56415abfc6ec",
-    "semantic_hash": "e21f6bb2a9fa3812f28b56415abfc6ec"
+    "mtime": 1792675835.459961,
+    "seen": 1792675987.2616158,
+    "ast_hash": "5bd655186ce211d57b80d1e308179844",
+    "semantic_hash": ""
   },
   "backend/app/store.py": {
     "mtime": 1792655719.8515248,
@@ -156,9 +156,9 @@
     "semantic_hash": "30d2e5f98eddda889d2092fa80ed0b82"
   },
   "src/RpmDashboard.jsx": {
-    "mtime": 1792671060.0178876,
-    "seen": 1792672039.1248035,
-    "ast_hash": "f53dc80859f984384cd72885814486b6",
+    "mtime": 1792674881.5363505,
+    "seen": 1792675987.2616699,
+    "ast_hash": "7e25d1464c69b259d14d9c241147d57f",
     "semantic_hash": ""
   },
   "src/main.jsx": {
@@ -288,9 +288,9 @@
     "semantic_hash": ""
   },
   "src/rpmApi.js": {
-    "mtime": 1792670852.0403657,
-    "seen": 1792672039.1248071,
-    "ast_hash": "8989f7faa41736e3ff8d70c6f719598d",
+    "mtime": 1792674582.4237735,
+    "seen": 1792675987.2616763,
+    "ast_hash": "1234a22683972ff77c674776b987edd4",
     "semantic_hash": ""
   },
   "backend/tests/test_milestone3_sync.py": {
@@ -300,21 +300,21 @@
     "semantic_hash": ""
   },
   "src/offlineQueue.js": {
-    "mtime": 1792671728.473117,
-    "seen": 1792672039.124806,
-    "ast_hash": "e6f6280fe60b8e91de6312ce059357f1",
+    "mtime": 1792675565.8765004,
+    "seen": 1792675987.2616742,
+    "ast_hash": "ec19d43fc35120f09bfbaa71acd87670",
     "semantic_hash": ""
   },
   "src/syncManager.js": {
-    "mtime": 1792671738.7854886,
-    "seen": 1792672039.1248093,
-    "ast_hash": "4c07b92c2174058e5bc5e40f6f9a5b90",
+    "mtime": 1792674699.26483,
+    "seen": 1792675987.2616801,
+    "ast_hash": "65edd7b31e31a0aa6824b45e1e808a68",
     "semantic_hash": ""
   },
   "test/offlineQueueAndSync.test.js": {
-    "mtime": 1792671779.5132067,
-    "seen": 1792672039.12481,
-    "ast_hash": "c32da9192d246c82ac5dd633e56e3b6b",
+    "mtime": 1792675465.214495,
+    "seen": 1792675987.2616823,
+    "ast_hash": "0c8d3242d73ae7b19aaa958d7975120b",
     "semantic_hash": ""
   },
   "docs/rpm-offline-sync.md": {
@@ -339,6 +339,24 @@
     "mtime": 1792673138.0570834,
     "seen": 1792673316.6036716,
     "ast_hash": "d98833d0a2fa1189ae65f94d22f34029",
+    "semantic_hash": ""
+  },
+  "backend/app/escalation.py": {
+    "mtime": 1792675365.9759252,
+    "seen": 1792675987.261597,
+    "ast_hash": "35b4fc1a351d8f2ff2d26b973cab67bf",
+    "semantic_hash": ""
+  },
+  "backend/app/notifications.py": {
+    "mtime": 1792675206.0121305,
+    "seen": 1792675987.2616131,
+    "ast_hash": "043a09496490530d09533d2d152195c6",
+    "semantic_hash": ""
+  },
+  "backend/tests/test_milestone5_escalation.py": {
+    "mtime": 1792675081.058252,
+    "seen": 1792675987.2616463,
+    "ast_hash": "1a3bfa73d188cfb967b77a9b42fd40f6",
     "semantic_hash": ""
   }
 }

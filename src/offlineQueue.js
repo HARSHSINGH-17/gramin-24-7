@@ -131,7 +131,7 @@ function withStore(db, mode, callback) {
  * Enqueue a measurement event into durable storage
  * Idempotent: if event_id already exists, preserves existing record.
  */
-export async function enqueueMeasurementEvent(event, customDb = null) {
+export async function enqueueMeasurementEvent(event, customDbOrOptions = null) {
   if (!event || !event.event_id) {
     throw new Error('Measurement event must have an event_id')
   }
@@ -148,10 +148,26 @@ export async function enqueueMeasurementEvent(event, customDb = null) {
     throw new Error('Measurement event must have a unit')
   }
 
+  let customDb = null
+  let enqueuedBy = null
+
+  if (customDbOrOptions) {
+    if (customDbOrOptions.transaction || customDbOrOptions.createObjectStore) {
+      customDb = customDbOrOptions
+    } else if (typeof customDbOrOptions === 'object') {
+      customDb = customDbOrOptions.customDb || null
+      enqueuedBy = customDbOrOptions.enqueued_by || customDbOrOptions.enqueuedBy || null
+    }
+  }
+
+  if (!enqueuedBy && event.enqueued_by) {
+    enqueuedBy = event.enqueued_by
+  }
+
   const db = customDb || (await openQueueDatabase())
   const nowIso = new Date().toISOString()
 
-  // Clean canonical contract record
+  // Clean canonical contract record (never storing passwords or auth tokens)
   const record = {
     schema_version: event.schema_version || '1.0',
     event_id: String(event.event_id),
@@ -165,7 +181,8 @@ export async function enqueueMeasurementEvent(event, customDb = null) {
     device_reference: event.device_reference || undefined,
     health_worker_reference: event.health_worker_reference || undefined,
 
-    // Queue metadata
+    // Account binding & queue metadata
+    enqueued_by: enqueuedBy ? String(enqueuedBy) : null,
     status: QUEUE_STATUS.PENDING,
     enqueued_at: nowIso,
     attempt_count: 0,
@@ -234,14 +251,18 @@ export async function getQueuedEvent(eventId, customDb = null) {
 }
 
 /**
- * List queued events with optional status and patient filtering
+ * List queued events with optional status, patient, and account filtering
  */
-export async function listQueuedEvents({ status = null, patientId = null, limit = 100 } = {}, customDb = null) {
+export async function listQueuedEvents(
+  { status = null, patientId = null, enqueuedBy = null, limit = 100 } = {},
+  customDb = null
+) {
   const db = customDb || (await openQueueDatabase())
   if (!db) {
     let items = await getMemoryStore().getAll()
     if (status) items = items.filter((i) => i.status === status)
     if (patientId) items = items.filter((i) => i.patient_id === patientId)
+    if (enqueuedBy) items = items.filter((i) => !i.enqueued_by || i.enqueued_by === enqueuedBy)
     items.sort((a, b) => new Date(a.enqueued_at) - new Date(b.enqueued_at))
     return items.slice(0, limit)
   }
@@ -256,6 +277,7 @@ export async function listQueuedEvents({ status = null, patientId = null, limit 
         let items = req.result || []
         if (status) items = items.filter((i) => i.status === status)
         if (patientId) items = items.filter((i) => i.patient_id === patientId)
+        if (enqueuedBy) items = items.filter((i) => !i.enqueued_by || i.enqueued_by === enqueuedBy)
         items.sort((a, b) => new Date(a.enqueued_at) - new Date(b.enqueued_at))
         resolve(items.slice(0, limit))
       }
@@ -269,8 +291,29 @@ export async function listQueuedEvents({ status = null, patientId = null, limit 
 /**
  * Retrieve up to limit pending events ready for synchronization
  */
-export async function getPendingEvents(limit = 100, customDb = null) {
-  return listQueuedEvents({ status: QUEUE_STATUS.PENDING, limit }, customDb)
+export async function getPendingEvents(limit = 100, customDbOrOptions = null, enqueuedByArg = null) {
+  let customDb = null
+  let enqueuedBy = enqueuedByArg || null
+
+  if (typeof limit === 'object' && limit !== null) {
+    enqueuedBy = limit.enqueuedBy || limit.enqueued_by || enqueuedByArg || null
+    customDb = limit.customDb || null
+    limit = limit.limit || 100
+  } else if (customDbOrOptions) {
+    if (customDbOrOptions.transaction || customDbOrOptions.createObjectStore) {
+      customDb = customDbOrOptions
+    } else if (typeof customDbOrOptions === 'object') {
+      customDb = customDbOrOptions.customDb || null
+      enqueuedBy = customDbOrOptions.enqueued_by || customDbOrOptions.enqueuedBy || enqueuedByArg || null
+      if (customDbOrOptions.limit) {
+        limit = customDbOrOptions.limit
+      }
+    } else if (typeof customDbOrOptions === 'string') {
+      enqueuedBy = customDbOrOptions
+    }
+  }
+
+  return listQueuedEvents({ status: QUEUE_STATUS.PENDING, enqueuedBy, limit }, customDb)
 }
 
 /**
@@ -531,7 +574,24 @@ export async function clearDeliveredEvents(customDb = null) {
 /**
  * Get statistical summary of queue counts
  */
-export async function getQueueSummary(customDb = null) {
+/**
+ * Get statistical summary of queue counts
+ */
+export async function getQueueSummary(customDbOrOptions = null, currentUserArg = null) {
+  let customDb = null
+  let currentUser = currentUserArg || null
+
+  if (customDbOrOptions) {
+    if (customDbOrOptions.transaction || customDbOrOptions.createObjectStore) {
+      customDb = customDbOrOptions
+    } else if (typeof customDbOrOptions === 'object') {
+      customDb = customDbOrOptions.customDb || null
+      currentUser = customDbOrOptions.currentUser || customDbOrOptions.current_user || currentUserArg || null
+    } else if (typeof customDbOrOptions === 'string') {
+      currentUser = customDbOrOptions
+    }
+  }
+
   const items = await listQueuedEvents({ limit: 1000 }, customDb)
   const summary = {
     total: items.length,
@@ -540,10 +600,18 @@ export async function getQueueSummary(customDb = null) {
     delivered: 0,
     conflict: 0,
     failed: 0,
+    foreignPending: 0,
   }
 
   for (const item of items) {
-    if (summary[item.status] !== undefined) {
+    if (
+      item.status === QUEUE_STATUS.PENDING &&
+      currentUser &&
+      item.enqueued_by &&
+      item.enqueued_by !== currentUser
+    ) {
+      summary.foreignPending++
+    } else if (summary[item.status] !== undefined) {
       summary[item.status]++
     }
   }

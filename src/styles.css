@@ -2954,3 +2954,123 @@ h1 span {
   color: #2e7a4e;
   font-weight: 600;
 }
+
+/* Milestone 5: Alert Escalation and Simulated Notifications */
+.rpm-escalation-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.rpm-escalation-pill.level-0 {
+  background: #f1f5f2;
+  color: #557061;
+  border: 1px solid #d9e5dc;
+}
+.rpm-escalation-pill.level-1 {
+  background: #fff3e0;
+  color: #b26a00;
+  border: 1px solid #ffe0b2;
+}
+.rpm-escalation-pill.level-2 {
+  background: #ffebee;
+  color: #c62828;
+  border: 1px solid #ffcdd2;
+}
+.rpm-escalation-pill.stopped {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #c8e6c9;
+}
+.rpm-escalation-details {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #fcfcfb;
+  border: 1px dashed #dce5df;
+  border-radius: 6px;
+  font-size: 11px;
+}
+.rpm-escalation-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: #65776c;
+  font-size: 10px;
+  margin-top: 4px;
+}
+.rpm-simulated-tag {
+  display: inline-block;
+  padding: 2px 5px;
+  background: #edf3ee;
+  color: #4b6655;
+  border-radius: 3px;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.rpm-notif-drawer-toggle {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: #236c55;
+  font-size: 10px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+  margin-top: 4px;
+  display: inline-block;
+}
+.rpm-notif-drawer-toggle:hover {
+  color: #174e40;
+}
+.rpm-notif-history {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.rpm-notif-card {
+  padding: 6px 8px;
+  background: #fff;
+  border: 1px solid #e5ebe5;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rpm-notif-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 9px;
+  color: #7b8b82;
+}
+.rpm-notif-body {
+  font-size: 10.5px;
+  color: #334a3e;
+}
+.rpm-notif-delivery {
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.rpm-notif-delivery.delivered {
+  color: #2e7d32;
+}
+.rpm-notif-delivery.failed {
+  color: #c62828;
+}
+.rpm-notif-delivery.retrying {
+  color: #b26a00;
+}
+.rpm-sync-pill.foreign-alert {
+  background: #fff3e0;
+  color: #b26a00;
+  border: 1px solid #ffe0b2;
+}
+

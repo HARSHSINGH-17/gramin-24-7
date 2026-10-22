@@ -458,3 +458,33 @@ test('15. Sign-out or account switch preserves pending events without silent dat
   assert.ok(afterSignOut, 'Offline queue must NEVER be wiped on user sign out')
   assert.equal(afterSignOut.status, QUEUE_STATUS.PENDING)
 })
+
+test('16. User account isolation prevents cross-account submission after sign-out and switch', async () => {
+  const { mockDb } = createMockIndexedDB()
+  const aliceEvent = {
+    event_id: 'e1600000-0000-0000-0000-000000000016',
+    patient_id: 'PC-ALICE01',
+    measurement_type: 'heart_rate',
+    value: 72,
+    unit: 'beats_per_minute',
+    enqueued_by: 'alice_chw',
+  }
+
+  // Alice enqueues an event
+  await enqueueMeasurementEvent(aliceEvent, mockDb)
+
+  // Bob signs in. Bob queries for pending events to sync.
+  const bobPending = await getPendingEvents(10, mockDb, 'bob_supervisor')
+  assert.equal(bobPending.length, 0, 'Bob must NOT receive Alice pending events for submission')
+
+  // Bob checks queue summary: shows foreign pending event safely preserved
+  const bobSummary = await getQueueSummary(mockDb, 'bob_supervisor')
+  assert.equal(bobSummary.pending, 0)
+  assert.equal(bobSummary.foreignPending, 1, 'Alice event safely preserved as foreignPending')
+
+  // Alice signs back in: her pending events are immediately ready for sync
+  const alicePending = await getPendingEvents(10, mockDb, 'alice_chw')
+  assert.equal(alicePending.length, 1)
+  assert.equal(alicePending[0].event_id, aliceEvent.event_id)
+})
+

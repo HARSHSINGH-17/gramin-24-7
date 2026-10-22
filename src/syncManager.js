@@ -27,6 +27,7 @@ import {
 import {
   syncBatchEvents,
   getStoredToken,
+  getStoredUser,
   SessionExpiredError,
   AccessDeniedError,
 } from './rpmApi.js'
@@ -73,7 +74,9 @@ class SyncManager {
    * Produce current status snapshot
    */
   async getSnapshot() {
-    const queueSummary = await getQueueSummary()
+    const user = getStoredUser()
+    const currentUser = user?.username || null
+    const queueSummary = await getQueueSummary({ currentUser })
     return {
       isOnline: this.isOnline,
       isSyncing: this.isSyncing,
@@ -83,6 +86,7 @@ class SyncManager {
       lastSyncSummary: this.lastSyncSummary,
       lastSyncError: this.lastSyncError,
       queueSummary,
+      currentUser,
     }
   }
 
@@ -216,8 +220,11 @@ class SyncManager {
 
     let batch = []
     try {
-      // 1. Fetch up to 100 pending events
-      batch = await getPendingEvents(MAX_SYNC_BATCH_SIZE)
+      const user = getStoredUser()
+      const currentUser = user?.username || null
+
+      // 1. Fetch up to 100 pending events bound to current authenticated user
+      batch = await getPendingEvents(MAX_SYNC_BATCH_SIZE, { enqueuedBy: currentUser })
       if (!batch.length) {
         this.isSyncing = false
         await this._notify()
@@ -276,8 +283,8 @@ class SyncManager {
       this.lastSyncSummary = result?.summary || null
       this.lastSyncError = null
 
-      // Check if more pending events remain to sync
-      const remaining = await getPendingEvents(1)
+      // Check if more pending events remain to sync for current user
+      const remaining = await getPendingEvents(1, { enqueuedBy: currentUser })
       if (remaining.length > 0 && this.isOnline && !this.isPausedOnAuth) {
         // Schedule immediate next batch
         setTimeout(() => this.syncNow().catch(() => {}), 100)

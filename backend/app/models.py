@@ -281,3 +281,83 @@ class Alert(ContractModel):
         if self.status is AlertStatus.RESOLVED and self.resolution is None:
             raise ValueError("resolved alerts require resolution metadata")
         return self
+
+
+class EscalationRole(str, Enum):
+    COMMUNITY_HEALTH_WORKER = "community_health_worker"
+    SUPERVISOR = "supervisor"
+
+
+class NotificationDeliveryStatus(str, Enum):
+    DELIVERED = "delivered"
+    FAILED = "failed"
+    RETRYING = "retrying"
+
+
+class EscalationStatus(str, Enum):
+    PENDING = "pending"
+    ESCALATED = "escalated"
+    ACKNOWLEDGED_STOPPED = "acknowledged_stopped"
+    RESOLVED_STOPPED = "resolved_stopped"
+    MAX_REACHED = "max_reached"
+
+
+class EscalationPolicy(ContractModel):
+    policy_id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=128)
+    category: AlertCategory | None = None
+    min_severity: AlertSeverity = AlertSeverity.MEDIUM
+    initial_target_role: EscalationRole = EscalationRole.COMMUNITY_HEALTH_WORKER
+    escalation_delay_seconds: int = Field(ge=1, le=86400)
+    subsequent_target_role: EscalationRole | None = EscalationRole.SUPERVISOR
+    max_attempts: int = Field(ge=1, le=10, default=3)
+    retry_delay_seconds: int = Field(ge=1, le=3600, default=60)
+    stop_on_acknowledge: bool = True
+    stop_on_resolve: bool = True
+    is_demo: bool = True
+
+
+class MockNotification(ContractModel):
+    notification_id: UUID
+    alert_id: UUID
+    patient_id: str = Field(pattern=r"^PC-[A-Z0-9]{4,32}$")
+    escalation_level: int = Field(ge=1, le=5)
+    recipient_role: EscalationRole
+    recipient_target: str = Field(min_length=1, max_length=128)
+    channel: str = Field(default="mock_sms", max_length=32)
+    message_body: str = Field(min_length=1, max_length=1000)
+    created_at: datetime
+    attempted_at: datetime
+    delivery_status: NotificationDeliveryStatus
+    retry_count: int = Field(ge=0, default=0)
+    failure_reason: str | None = None
+    is_simulated: bool = True
+
+    @field_validator("created_at", "attempted_at")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("timestamp must include timezone information")
+        return value
+
+
+class AlertEscalationState(ContractModel):
+    alert_id: UUID
+    policy_id: str
+    patient_id: str = Field(pattern=r"^PC-[A-Z0-9]{4,32}$")
+    current_level: int = Field(ge=0, le=5, default=0)
+    status: EscalationStatus
+    created_at: datetime
+    next_due_at: datetime | None = None
+    last_escalated_at: datetime | None = None
+    attempts_count: int = Field(ge=0, default=0)
+    updated_at: datetime
+    notifications: list[MockNotification] = Field(default_factory=list)
+
+    @field_validator("created_at", "updated_at")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("timestamp must include timezone information")
+        return value
+
