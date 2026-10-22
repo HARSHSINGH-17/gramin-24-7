@@ -16,8 +16,8 @@ Flutter is not mandatory based on the current repository: the application is Rea
 
 - Displays patient records, measurements, alerts, freshness, and synchronization status.
 - Submits manually entered or simulator-generated measurement events through the versioned API contract.
-- Stores pending outbound events in a future durable offline-storage layer, preferably IndexedDB rather than localStorage.
-- Keeps client queue state separate from server delivery state.
+- Stores pending outbound events in a durable IndexedDB event queue (`pahaadcare_rpm_offline_db`) with memory fallback; see [rpm-offline-sync.md](rpm-offline-sync.md).
+- Keeps client queue state separate from server delivery state, synchronizing via `SyncManager` and single-flight guarded batches.
 - May present server-provided alert decisions, but must not contain privileged credentials or be the authoritative clinical rules engine.
 - Continues to own current prototype features such as local patient records, medicines, SOS, language support, and rural-care navigation.
 

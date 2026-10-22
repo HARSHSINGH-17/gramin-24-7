@@ -73,6 +73,12 @@ Core Monitoring and Synchronization APIs (Milestone 1):
 - `GET /api/v1/alerts`: query and filter alerts by status, patient, or category with cursor pagination.
 - `POST /api/v1/sync/events`: batch synchronization of offline-queued measurement events with partial-success semantics (accepts valid events while reporting conflicts/permission failures per-item).
 
+Milestone 3 Offline Event Queue and Synchronization:
+- Browser-side durable queue in IndexedDB (`pahaadcare_rpm_offline_db`) via `src/offlineQueue.js`.
+- Bounded batch synchronization (max 100 items), exponential backoff with jitter, single-flight guard, and per-event response reconciliation via `src/syncManager.js`.
+- Browser E2E suite (`backend/tests/test_browser.py`) verifies offline queueing, reload persistence, manual sync, and server history reflection.
+- Node offline queue test suite (`npm test`) verifies all 15 error, crash recovery, quota fallback, duplicate, and auth pause scenarios.
+
 The dashboard exposes only the action valid for the current state. A normal measurement does not resolve an alert automatically.
 
 ## Deterministic synthetic demonstration

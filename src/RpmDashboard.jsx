@@ -5,8 +5,10 @@ import {
   Clock3,
   Droplets,
   HeartPulse,
+  PlusCircle,
   RefreshCw,
   Thermometer,
+  Wifi,
   WifiOff,
   X,
 } from 'lucide-react'
@@ -24,6 +26,8 @@ import {
   acknowledgeAlert,
   resolveAlert,
 } from './rpmApi'
+import { syncManager } from './syncManager'
+import { enqueueMeasurementEvent } from './offlineQueue'
 
 const DEFAULT_POLL_INTERVAL_MS = 12000
 
@@ -333,10 +337,38 @@ export default function RpmDashboard() {
   const [actionNote, setActionNote] = React.useState('')
   const [showNoteInputForAlert, setShowNoteInputForAlert] = React.useState(null)
 
+  // Milestone 3: Offline Synchronization & Queue state
+  const [syncState, setSyncState] = React.useState({
+    isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+    isSyncing: false,
+    lastSyncTime: null,
+    consecutiveFailures: 0,
+    isPausedOnAuth: false,
+    lastSyncSummary: null,
+    lastSyncError: null,
+    queueSummary: { total: 0, pending: 0, sending: 0, delivered: 0, conflict: 0, failed: 0 },
+  })
+  const [showSimulateForm, setShowSimulateForm] = React.useState(false)
+  const [simPatientId, setSimPatientId] = React.useState('PC-SYNTH01')
+  const [simVitalType, setSimVitalType] = React.useState('heart_rate')
+  const [simValue, setSimValue] = React.useState('78')
+  const [simFeedback, setSimFeedback] = React.useState('')
+
   const isFetchingRef = React.useRef(false)
   const activeDetailControllerRef = React.useRef(null)
   const selectedPatientIdRef = React.useRef(selectedPatientId)
   selectedPatientIdRef.current = selectedPatientId
+
+  // Subscribe to syncManager state updates
+  React.useEffect(() => {
+    syncManager.init().catch(() => {})
+    const unsubscribe = syncManager.subscribe((snapshot) => {
+      setSyncState(snapshot)
+    })
+    return () => {
+      unsubscribe()
+    }
+  }, [])
 
   const handleUnauthorized = React.useCallback(() => {
     clearStoredToken()
@@ -517,6 +549,49 @@ export default function RpmDashboard() {
     }
   }, [selectedPatientId, accessToken, handleUnauthorized])
 
+  async function handleSyncNow() {
+    try {
+      await syncManager.syncNow({ force: true })
+      await loadDashboardData(null, true)
+    } catch {
+      // Error is captured in syncState.lastSyncError
+    }
+  }
+
+  async function handleQueueObservation(e) {
+    e.preventDefault()
+    setSimFeedback('')
+    try {
+      const unitMap = {
+        heart_rate: 'beats_per_minute',
+        oxygen_saturation: 'percent',
+        body_temperature: 'celsius',
+        systolic_blood_pressure: 'mmHg',
+        diastolic_blood_pressure: 'mmHg',
+      }
+      const newEvent = {
+        schema_version: '1.0',
+        event_id:
+          typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : 'b' + Math.random().toString(36).slice(2, 10) + '-0000-0000-0000-000000000001',
+        patient_id: simPatientId,
+        measurement_type: simVitalType,
+        value: parseFloat(simValue),
+        unit: unitMap[simVitalType] || 'beats_per_minute',
+        measured_at: new Date().toISOString(),
+        source: 'patient',
+        is_simulated: true,
+      }
+      await enqueueMeasurementEvent(newEvent)
+      setSimFeedback(`Queued event ${newEvent.event_id.slice(0, 8)}... into offline IndexedDB queue.`)
+      const summary = await syncManager.getSnapshot()
+      setSyncState(summary)
+    } catch (err) {
+      setSimFeedback(`Error queueing observation: ${err.message}`)
+    }
+  }
+
   async function signIn(event) {
     event.preventDefault()
     setAuthBusy(true)
@@ -526,6 +601,7 @@ export default function RpmDashboard() {
       setPassword('')
       setAccessToken(res.access_token)
       setLastRefresh(null)
+      syncManager.resumeAfterAuth()
     } catch (err) {
       setError(err.message || 'Sign-in failed.')
     } finally {
@@ -648,6 +724,119 @@ export default function RpmDashboard() {
           )}
         </div>
       </div>
+
+      {accessToken && (
+        <div className="rpm-sync-bar" role="region" aria-label="Offline event queue status">
+          <div className="rpm-sync-group">
+            <span className={`rpm-net-badge ${syncState.isOnline ? 'online' : 'offline'}`}>
+              {syncState.isOnline ? <Wifi size={13} /> : <WifiOff size={13} />}
+              {syncState.isOnline ? 'ONLINE' : 'OFFLINE'}
+            </span>
+            <span className="rpm-sync-pill">
+              <strong>{syncState.queueSummary?.pending || 0}</strong> queued
+            </span>
+            {syncState.queueSummary?.sending > 0 && (
+              <span className="rpm-sync-pill">
+                <strong>{syncState.queueSummary.sending}</strong> syncing
+              </span>
+            )}
+            <span className="rpm-sync-pill">
+              <strong>{syncState.queueSummary?.delivered || 0}</strong> synchronized
+            </span>
+            {(syncState.queueSummary?.conflict > 0 || syncState.queueSummary?.failed > 0) && (
+              <span
+                className="rpm-sync-pill rpm-sync-attention"
+                title="Events requiring review or resolution"
+              >
+                <AlertTriangle size={12} />
+                <strong>
+                  {(syncState.queueSummary?.conflict || 0) + (syncState.queueSummary?.failed || 0)}
+                </strong>{' '}
+                attention required
+              </span>
+            )}
+            <span className="rpm-sync-pill">
+              Last sync {formatTime(syncState.lastSyncTime)}
+            </span>
+          </div>
+          <div className="rpm-sync-group">
+            <button
+              className="button button-secondary rpm-sync-button"
+              onClick={() => setShowSimulateForm(!showSimulateForm)}
+            >
+              <PlusCircle size={14} />
+              {showSimulateForm ? 'Hide Queue Tool' : 'Queue Observation'}
+            </button>
+            <button
+              className="button button-primary rpm-sync-button"
+              onClick={handleSyncNow}
+              disabled={
+                syncState.isSyncing ||
+                (!syncState.isOnline && (syncState.queueSummary?.pending || 0) === 0)
+              }
+            >
+              <RefreshCw size={14} className={syncState.isSyncing ? 'rpm-spin' : ''} />
+              {syncState.isSyncing ? 'Synchronizing...' : 'Sync Now'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showSimulateForm && accessToken && (
+        <div className="rpm-simulate-panel">
+          <h3>Queue Local Observation (Offline-First Durability Test)</h3>
+          <form className="rpm-simulate-form" onSubmit={handleQueueObservation}>
+            <label>
+              Patient
+              <select value={simPatientId} onChange={(e) => setSimPatientId(e.target.value)}>
+                {patients.length ? (
+                  patients.map((p) => (
+                    <option key={p.patient_id} value={p.patient_id}>
+                      {p.patient_id} ({p.display_name || 'Patient'})
+                    </option>
+                  ))
+                ) : (
+                  <option value="PC-SYNTH01">PC-SYNTH01 (Synthetic)</option>
+                )}
+              </select>
+            </label>
+            <label>
+              Vital Type
+              <select value={simVitalType} onChange={(e) => setSimVitalType(e.target.value)}>
+                {READING_TYPES.map(([key, label, unit]) => (
+                  <option key={key} value={key}>
+                    {label} ({unit})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Value
+              <input
+                type="number"
+                step="any"
+                value={simValue}
+                onChange={(e) => setSimValue(e.target.value)}
+                required
+              />
+            </label>
+            <button className="button button-secondary" type="submit">
+              Save to Offline Queue
+            </button>
+          </form>
+          {simFeedback && <div className="rpm-queue-feedback">{simFeedback}</div>}
+        </div>
+      )}
+
+      {syncState.lastSyncError && accessToken && (
+        <div className="rpm-error-banner" role="alert" style={{ marginBottom: '14px' }}>
+          <WifiOff size={18} />
+          <div>
+            <strong>Offline Queue Synchronization Paused</strong>
+            <span>{syncState.lastSyncError}</span>
+          </div>
+        </div>
+      )}
 
       {!accessToken && (
         <form className="rpm-login-panel" onSubmit={signIn}>

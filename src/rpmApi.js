@@ -285,3 +285,37 @@ export async function resolveAlert(
     },
   })
 }
+
+/**
+ * Batch Event Synchronization
+ */
+export async function syncBatchEvents(events, { signal = null, onUnauthorized = null } = {}) {
+  if (!events || !events.length) {
+    return {
+      summary: { total: 0, accepted: 0, duplicate: 0, conflict: 0, rejected: 0 },
+      items: [],
+      request_id: 'empty_batch',
+    }
+  }
+
+  const cleanEvents = events.map((e) => ({
+    schema_version: e.schema_version || '1.0',
+    event_id: e.event_id,
+    patient_id: e.patient_id,
+    measurement_type: e.measurement_type,
+    value: Number(e.value),
+    unit: e.unit,
+    measured_at: e.measured_at,
+    source: e.source || 'patient',
+    is_simulated: Boolean(e.is_simulated),
+    ...(e.device_reference ? { device_reference: e.device_reference } : {}),
+    ...(e.health_worker_reference ? { health_worker_reference: e.health_worker_reference } : {}),
+  }))
+
+  return rpmRequest('/api/v1/sync/events', {
+    method: 'POST',
+    body: { events: cleanEvents },
+    signal,
+    onUnauthorized,
+  })
+}

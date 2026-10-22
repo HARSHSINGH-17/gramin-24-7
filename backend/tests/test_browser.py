@@ -277,3 +277,98 @@ def test_browser_patient_selection_and_stale_data(browser_env):
         page.wait_for_selector("text=PROTECTED RPM WORKSPACE")
 
         browser.close()
+
+
+def test_browser_offline_queue_and_sync(browser_env):
+    """
+    Milestone 3 Browser Test:
+    - Verifies Offline Sync Bar status and counters.
+    - Queues an observation into durable IndexedDB storage.
+    - Verifies durable persistence surviving page reload.
+    - Synchronizes batch with backend via Sync Now.
+    - Verifies synchronized measurement appears in patient's authoritative history.
+    """
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        context = browser.new_context()
+        page = context.new_page()
+
+        page.add_init_script(f"""
+            window.__RPM_API_BASE_URL = '{browser_env['api_url']}';
+            localStorage.setItem('pc-auth-user', JSON.stringify('PC-DEMO01'));
+            localStorage.setItem('pc-patient-id', JSON.stringify('PC-DEMO01'));
+        """)
+
+        # Open and navigate to RPM Monitor
+        page.goto(browser_env["frontend_url"])
+        page.wait_for_selector(".ob-screen.splash-screen", state="detached", timeout=10000)
+        page.locator("button", has_text="RPM Monitor").first.click()
+
+        # Sign in
+        page.wait_for_selector("text=PROTECTED RPM WORKSPACE", timeout=10000)
+        page.fill("input[autocomplete='username']", "browser-clinician")
+        page.fill("input[autocomplete='current-password']", "browser-pass-1234")
+        page.click("button:has-text('Sign in')")
+
+        # Verify offline sync bar is visible
+        page.wait_for_selector(".rpm-sync-bar", timeout=10000)
+        assert page.locator("text=ONLINE").first.is_visible()
+        assert page.locator("button:has-text('Sync Now')").first.is_visible()
+
+        # Click Queue Observation button to open simulator
+        queue_tool_btn = page.locator("button:has-text('Queue Observation')").first
+        queue_tool_btn.click()
+        page.wait_for_selector(".rpm-simulate-panel", timeout=5000)
+
+        # Fill observation value
+        value_input = page.locator(".rpm-simulate-panel input[type='number']")
+        value_input.fill("86.5")
+
+        # Click Save to Offline Queue
+        save_btn = page.locator("button:has-text('Save to Offline Queue')")
+        save_btn.click()
+        page.wait_for_selector(".rpm-queue-feedback", timeout=5000)
+        assert "Queued event" in page.locator(".rpm-queue-feedback").inner_text()
+
+        # Verify queue counter updated
+        assert page.locator("text=queued").first.is_visible()
+
+        # Test reload persistence: reload page and ensure queue state survived
+        page.reload()
+        page.wait_for_selector(".ob-screen.splash-screen", state="detached", timeout=10000)
+        page.locator("button", has_text="RPM Monitor").first.click()
+
+        # Check if session persisted or if login is needed
+        try:
+            page.wait_for_selector(".rpm-sync-bar", timeout=4000)
+        except Exception:
+            page.wait_for_selector("text=PROTECTED RPM WORKSPACE", timeout=5000)
+            page.fill("input[autocomplete='username']", "browser-clinician")
+            page.fill("input[autocomplete='current-password']", "browser-pass-1234")
+            page.click("button:has-text('Sign in')")
+            page.wait_for_selector(".rpm-sync-bar", timeout=10000)
+
+        assert page.locator(".rpm-sync-bar").is_visible()
+
+        # Click Sync Now to push queued events to backend
+        sync_now_btn = page.locator("button:has-text('Sync Now')").first
+        sync_now_btn.click()
+        page.wait_for_timeout(2000)
+
+        # Verify synchronized count in sync bar
+        page.wait_for_selector("text=synchronized", timeout=10000)
+        assert page.locator("text=synchronized").first.is_visible()
+
+        # Open PC-SYNTH01 detail panel to verify synced reading is now in server history
+        page.locator("button:has-text('PC-SYNTH01')").first.click()
+        page.wait_for_selector("aside[aria-label='Details for PC-SYNTH01']", timeout=10000)
+        detail_panel = page.locator("aside[aria-label='Details for PC-SYNTH01']")
+        assert detail_panel.is_visible()
+        assert detail_panel.locator("text=86.5 bpm").first.is_visible()
+
+        # Sign out cleanly
+        signout_btn = page.locator("button:has-text('Sign out of RPM workspace')")
+        signout_btn.click()
+        page.wait_for_selector("text=PROTECTED RPM WORKSPACE")
+
+        browser.close()

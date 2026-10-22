@@ -90,9 +90,9 @@
     "semantic_hash": "43c48886a7594d423eba91900d924979"
   },
   "backend/tests/test_browser.py": {
-    "mtime": 1792670368.7769878,
-    "seen": 1792670527.4520054,
-    "ast_hash": "dff8a537b28c0b2cc63900fc89f844f2",
+    "mtime": 1792671351.429466,
+    "seen": 1792672039.124785,
+    "ast_hash": "0eff1e91c8f7601e894c4576e4bea8dc",
     "semantic_hash": ""
   },
   "backend/tests/test_contracts.py": {
@@ -126,10 +126,10 @@
     "semantic_hash": "668602c6fa70343de92ccb7219c7709a"
   },
   "package.json": {
-    "mtime": 1792645042.3795002,
-    "seen": 1792667062.222441,
-    "ast_hash": "263056530d41fc5c5281222f40fb458e",
-    "semantic_hash": "263056530d41fc5c5281222f40fb458e"
+    "mtime": 1792671797.454698,
+    "seen": 1792672039.1247976,
+    "ast_hash": "ab30e3a24e72a3a0e29b794353284ccc",
+    "semantic_hash": ""
   },
   "schemas/rpm-alert.schema.json": {
     "mtime": 1792649543.5879118,
@@ -156,9 +156,9 @@
     "semantic_hash": "30d2e5f98eddda889d2092fa80ed0b82"
   },
   "src/RpmDashboard.jsx": {
-    "mtime": 1792669994.659383,
-    "seen": 1792670527.4520338,
-    "ast_hash": "2ecc7fb90638005906a42da6cbdc2399",
+    "mtime": 1792671060.0178876,
+    "seen": 1792672039.1248035,
+    "ast_hash": "f53dc80859f984384cd72885814486b6",
     "semantic_hash": ""
   },
   "src/main.jsx": {
@@ -216,9 +216,9 @@
     "semantic_hash": ""
   },
   "backend/README.md": {
-    "mtime": 1792670485.5325384,
-    "seen": 1792670527.4520564,
-    "ast_hash": "cd26bef9ea42474191364025bb5fdd96",
+    "mtime": 1792671964.191357,
+    "seen": 1792672039.1248193,
+    "ast_hash": "9e6c615920b11c630d66288d79a76912",
     "semantic_hash": ""
   },
   "backend/requirements-dev.txt": {
@@ -240,9 +240,9 @@
     "semantic_hash": ""
   },
   "docs/rpm-architecture.md": {
-    "mtime": 1792649543.579398,
-    "seen": 1792669224.2939901,
-    "ast_hash": "1f1b015a572d147e43fa5ee2ec11a71a",
+    "mtime": 1792671948.103686,
+    "seen": 1792672039.1248233,
+    "ast_hash": "fb4535367cb9309dcae9dce9c836c02b",
     "semantic_hash": ""
   },
   "docs/rpm-event-contract.md": {
@@ -288,9 +288,39 @@
     "semantic_hash": ""
   },
   "src/rpmApi.js": {
-    "mtime": 1792670139.9505785,
-    "seen": 1792670527.4520376,
-    "ast_hash": "f5556c2ed70bd3fbda8a02b5177ea2db",
+    "mtime": 1792670852.0403657,
+    "seen": 1792672039.1248071,
+    "ast_hash": "8989f7faa41736e3ff8d70c6f719598d",
+    "semantic_hash": ""
+  },
+  "backend/tests/test_milestone3_sync.py": {
+    "mtime": 1792671109.6361408,
+    "seen": 1792672039.1247923,
+    "ast_hash": "04fbc8d0a5c89fabbf696375af331ce8",
+    "semantic_hash": ""
+  },
+  "src/offlineQueue.js": {
+    "mtime": 1792671728.473117,
+    "seen": 1792672039.124806,
+    "ast_hash": "e6f6280fe60b8e91de6312ce059357f1",
+    "semantic_hash": ""
+  },
+  "src/syncManager.js": {
+    "mtime": 1792671738.7854886,
+    "seen": 1792672039.1248093,
+    "ast_hash": "4c07b92c2174058e5bc5e40f6f9a5b90",
+    "semantic_hash": ""
+  },
+  "test/offlineQueueAndSync.test.js": {
+    "mtime": 1792671779.5132067,
+    "seen": 1792672039.12481,
+    "ast_hash": "c32da9192d246c82ac5dd633e56e3b6b",
+    "semantic_hash": ""
+  },
+  "docs/rpm-offline-sync.md": {
+    "mtime": 1792671936.411063,
+    "seen": 1792672039.1248252,
+    "ast_hash": "e9b0865642f4ba1e41e299a8775c23d7",
     "semantic_hash": ""
   }
 }

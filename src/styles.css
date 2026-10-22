@@ -2848,3 +2848,109 @@ h1 span {
   .rpm-alert-id { display: none; }
   .rpm-alert-action { padding: 7px 8px; font-size: 10px; }
 }
+
+/* Milestone 3: Offline Synchronization & Queue UI */
+.rpm-sync-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: #fdfefe;
+  border: 1px solid #e1ebe3;
+  border-radius: 9px;
+  font-size: 11px;
+}
+.rpm-sync-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.rpm-net-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+.rpm-net-badge.online {
+  background: #e8f5ec;
+  color: #2b7a4b;
+  border: 1px solid #c9ebd3;
+}
+.rpm-net-badge.offline {
+  background: #fff1ed;
+  color: #b04332;
+  border: 1px solid #fed2c8;
+}
+.rpm-sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #556b5e;
+}
+.rpm-sync-pill strong {
+  color: #1f3d2f;
+  font-weight: 800;
+}
+.rpm-sync-attention {
+  color: #9d3826;
+  background: #feece8;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+.rpm-sync-button {
+  padding: 6px 11px;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rpm-simulate-panel {
+  padding: 16px;
+  margin-bottom: 16px;
+  background: #f9fbf9;
+  border: 1px solid #e2ece4;
+  border-radius: 9px;
+}
+.rpm-simulate-panel h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #2d4c3d;
+}
+.rpm-simulate-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.rpm-simulate-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #586e61;
+}
+.rpm-simulate-form input,
+.rpm-simulate-form select {
+  height: 34px;
+  padding: 6px 8px;
+  border: 1px solid #cfded3;
+  border-radius: 6px;
+  font-size: 11px;
+  background: #fff;
+}
+.rpm-queue-feedback {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #2e7a4e;
+  font-weight: 600;
+}
