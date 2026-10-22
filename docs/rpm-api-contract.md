@@ -329,3 +329,25 @@ The frontend queue uses local states `pending`, `sending`, `delivered`, and `fai
 - `failed`: the last attempt received a permanent rejection or exhausted retry policy; the error is retained for user/operator review.
 
 A local queue write must never be displayed as server delivery. Network failures leave the event retryable and preserve `event_id`, `measured_at`, and payload. The server response is the only transition to `delivered`.
+
+## Milestone 2 Dashboard Integration & Polling Contract
+
+The clinician monitoring dashboard (`src/RpmDashboard.jsx`) directly integrates with the REST APIs via the shared frontend client (`src/rpmApi.js`).
+
+### Client Integration Endpoints
+- `POST /api/v1/auth/token`: Session sign-in, token stored strictly in `sessionStorage` (`pahaadcare-rpm-token`).
+- `POST /api/v1/auth/logout`: Server-side token revocation and client session cleanup.
+- `GET /api/v1/patients`: Patient census listing.
+- `GET /api/v1/patients/{patient_id}/measurements`: Patient-specific measurement history with cursor pagination.
+- `GET /api/v1/alerts`: Active and historical alerts filterable by `status`, `category`, and `patient_id`.
+- `POST /api/v1/alerts/{alert_id}/acknowledge`: Transitions `open` -> `acknowledged`, attaches optional clinician note, records audit.
+- `POST /api/v1/alerts/{alert_id}/resolve`: Transitions `acknowledged` -> `resolved`, attaches resolution code and optional note, records audit.
+
+### Refresh and Freshness Semantics
+- **Controlled Polling Interval:** Default 12 seconds (`DEFAULT_POLL_INTERVAL_MS = 12000`).
+- **Overlapping Request Prevention:** Background polling uses an in-flight guard ref to skip ticks if a prior cycle is active.
+- **Visibility Optimization:** Listens to `visibilitychange`; polling is paused when the browser tab is hidden and resumes immediately when focused.
+- **Stale Data Threshold:** Demo freshness threshold is 15 minutes (`DEMO_STALE_THRESHOLD_MINUTES = 15`). Readings with `measured_at` older than 15 minutes display a `Stale` badge.
+- **Failure Preservation:** If a refresh cycle encounters network failure, previously loaded patient data is preserved in the UI alongside a clear warning banner.
+- **Race Condition Prevention:** Patient detail queries use `AbortController` and target patient ID tracking to ensure rapid patient switching never displays out-of-order responses.
+- **Session Safety:** `401 Unauthorized` responses immediately clear `sessionStorage` and revert to the login panel. `403 Forbidden` responses display permission denial without terminating authenticated clinician sessions.

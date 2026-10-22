@@ -58,7 +58,7 @@ The repository stores:
 
 The `measurements.event_id` primary key and `alerts` active-condition unique index protect duplicate event and active-alert creation. Event equality hashes the canonical event payload excluding `received_at`; retries with a different measurement payload return `event_id_conflict`. Each submission and lifecycle mutation uses a SQLite transaction with `BEGIN IMMEDIATE`.
 
-The clinician prototype reads the development-only synthetic snapshot at `GET /api/v1/demo/rpm-dashboard`. The React base URL defaults to `http://127.0.0.1:8000` and can be overridden with `VITE_RPM_API_BASE_URL`. The endpoint is deterministic, local-only in intent, and not a production clinical data API.
+The clinician monitoring dashboard (`src/RpmDashboard.jsx`) connects to the authoritative REST APIs (`GET /api/v1/patients`, `GET /api/v1/patients/{patient_id}/measurements`, `GET /api/v1/alerts`) using `src/rpmApi.js`. The development-only synthetic snapshot at `GET /api/v1/demo/rpm-dashboard` is preserved for deterministic demo reference. The React base URL defaults to `http://127.0.0.1:8000` and can be overridden with `VITE_RPM_API_BASE_URL` or `window.__RPM_API_BASE_URL`.
 
 Alert lifecycle endpoints:
 

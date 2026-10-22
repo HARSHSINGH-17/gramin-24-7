@@ -90,10 +90,10 @@
     "semantic_hash": "43c48886a7594d423eba91900d924979"
   },
   "backend/tests/test_browser.py": {
-    "mtime": 1792666135.1615038,
-    "seen": 1792667062.2224343,
-    "ast_hash": "eb61326f21720c8727a4cd564b335309",
-    "semantic_hash": "eb61326f21720c8727a4cd564b335309"
+    "mtime": 1792670368.7769878,
+    "seen": 1792670527.4520054,
+    "ast_hash": "dff8a537b28c0b2cc63900fc89f844f2",
+    "semantic_hash": ""
   },
   "backend/tests/test_contracts.py": {
     "mtime": 1792655719.857097,
@@ -156,10 +156,10 @@
     "semantic_hash": "30d2e5f98eddda889d2092fa80ed0b82"
   },
   "src/RpmDashboard.jsx": {
-    "mtime": 1792656089.242987,
-    "seen": 1792667062.2224452,
-    "ast_hash": "a58dbe00cca3a70c9b0b9695191cd2dc",
-    "semantic_hash": "a58dbe00cca3a70c9b0b9695191cd2dc"
+    "mtime": 1792669994.659383,
+    "seen": 1792670527.4520338,
+    "ast_hash": "2ecc7fb90638005906a42da6cbdc2399",
+    "semantic_hash": ""
   },
   "src/main.jsx": {
     "mtime": 1792645042.4414995,
@@ -216,9 +216,9 @@
     "semantic_hash": ""
   },
   "backend/README.md": {
-    "mtime": 1792666998.1341188,
-    "seen": 1792669224.2939863,
-    "ast_hash": "2b1bc163a4ad151ec94f39617ef7719c",
+    "mtime": 1792670485.5325384,
+    "seen": 1792670527.4520564,
+    "ast_hash": "cd26bef9ea42474191364025bb5fdd96",
     "semantic_hash": ""
   },
   "backend/requirements-dev.txt": {
@@ -234,9 +234,9 @@
     "semantic_hash": ""
   },
   "docs/rpm-api-contract.md": {
-    "mtime": 1792666939.6454802,
-    "seen": 1792669224.2939892,
-    "ast_hash": "89901624221f0635c88468c991f9cd6f",
+    "mtime": 1792670459.1960516,
+    "seen": 1792670527.4520621,
+    "ast_hash": "b371622dd31466a56bba0789a66e4070",
     "semantic_hash": ""
   },
   "docs/rpm-architecture.md": {
@@ -279,6 +279,18 @@
     "mtime": 1792645042.4650095,
     "seen": 1792669224.2939959,
     "ast_hash": "bd568e616f4fa442c13968b394169921",
+    "semantic_hash": ""
+  },
+  "backend/tests/test_milestone2_contracts.py": {
+    "mtime": 1792670324.7293892,
+    "seen": 1792670527.4520133,
+    "ast_hash": "4f93c5249310c002760b126a019a7878",
+    "semantic_hash": ""
+  },
+  "src/rpmApi.js": {
+    "mtime": 1792670139.9505785,
+    "seen": 1792670527.4520376,
+    "ast_hash": "f5556c2ed70bd3fbda8a02b5177ea2db",
     "semantic_hash": ""
   }
 }

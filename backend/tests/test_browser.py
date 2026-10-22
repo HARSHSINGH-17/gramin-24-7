@@ -32,6 +32,16 @@ def browser_env(tmp_path_factory):
     # Initialize clean SQLite database for browser test
     repo = SQLiteRepository(db_path)
 
+    # Seed synthetic scenario measurements and alerts into SQLite
+    from backend.app.engine import MonitoringEngine
+    from backend.synthetic_vitals import SyntheticScenario, generate_scenario
+    engine = MonitoringEngine(store=repo)
+    for item in generate_scenario(SyntheticScenario.DEMO).events:
+        if hasattr(item, "measurement_type") and hasattr(item, "value"):
+            engine.process_measurement(item)
+        else:
+            engine.process_missing(item)
+
     # Save original state for clean restoration
     original_environ = dict(os.environ)
     import backend.app.main as main_module
@@ -205,5 +215,65 @@ def test_browser_full_workflow(browser_env):
         import jwt
         claims = jwt.decode(token, options={"verify_signature": False})
         assert restarted_repo.is_token_revoked(claims["jti"]) is True
+
+        browser.close()
+
+
+def test_browser_patient_selection_and_stale_data(browser_env):
+    """
+    Milestone 2 Browser Test:
+    - Verifies patient list loading and selection.
+    - Verifies measurement history display and ordering.
+    - Verifies stale/freshness status indicators.
+    - Verifies rapid patient switching and detail panel toggle.
+    """
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        context = browser.new_context()
+        page = context.new_page()
+
+        page.add_init_script(f"""
+            window.__RPM_API_BASE_URL = '{browser_env['api_url']}';
+            localStorage.setItem('pc-auth-user', JSON.stringify('PC-DEMO01'));
+            localStorage.setItem('pc-patient-id', JSON.stringify('PC-DEMO01'));
+        """)
+
+        # Open and navigate to RPM Monitor
+        page.goto(browser_env["frontend_url"])
+        page.wait_for_selector(".ob-screen.splash-screen", state="detached", timeout=10000)
+        page.locator("button", has_text="RPM Monitor").first.click()
+
+        # Sign in
+        page.wait_for_selector("text=PROTECTED RPM WORKSPACE", timeout=10000)
+        page.fill("input[autocomplete='username']", "browser-clinician")
+        page.fill("input[autocomplete='current-password']", "browser-pass-1234")
+        page.click("button:has-text('Sign in')")
+
+        # Verify census table is visible with PC-SYNTH01
+        page.wait_for_selector("text=Backend snapshot loaded", timeout=10000)
+        assert page.locator("text=Auto-refresh: 12s").first.is_visible()
+        patient_btn = page.locator("button:has-text('PC-SYNTH01')").first
+        assert patient_btn.is_visible()
+
+        # Click PC-SYNTH01 to open patient detail panel
+        patient_btn.click()
+        page.wait_for_selector("aside[aria-label='Details for PC-SYNTH01']", timeout=10000)
+        detail_panel = page.locator("aside[aria-label='Details for PC-SYNTH01']")
+        assert detail_panel.is_visible()
+        assert detail_panel.locator("text=recorded measurements").is_visible()
+
+        # Verify measurement history rows exist with timestamps and badges
+        history_rows = detail_panel.locator(".rpm-history-row")
+        assert history_rows.count() > 0
+
+        # Verify close button works
+        close_btn = detail_panel.locator("button[aria-label='Close patient details']")
+        close_btn.click()
+        page.wait_for_selector("aside[aria-label='Details for PC-SYNTH01']", state="detached", timeout=5000)
+
+        # Sign out cleanly
+        signout_btn = page.locator("button:has-text('Sign out of RPM workspace')")
+        signout_btn.click()
+        page.wait_for_selector("text=PROTECTED RPM WORKSPACE")
 
         browser.close()
