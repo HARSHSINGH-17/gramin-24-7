@@ -40,11 +40,19 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="PahaadCare RPM API", version="1.0.0", lifespan=lifespan)
 is_token_revoked = lambda jti: store.is_token_revoked(jti)
 get_settings = lambda: settings
+cors_kwargs: dict[str, object] = {
+    "allow_origins": list(settings.cors_origins),
+    "allow_methods": ["GET", "POST", "OPTIONS"],
+    "allow_headers": ["*"],
+    "allow_credentials": True,
+}
+if settings.environment in {"development", "test"}:
+    cors_kwargs["allow_origin_regex"] = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    cors_kwargs["allow_methods"] = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list(settings.cors_origins),
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
+    **cors_kwargs,
 )
 
 

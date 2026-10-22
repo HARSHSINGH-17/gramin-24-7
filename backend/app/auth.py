@@ -72,7 +72,7 @@ class SecuritySettings:
 
         origins_value = os.getenv(
             "PAHAADCARE_CORS_ORIGINS",
-            "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173",
+            "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:4173,http://127.0.0.1:4173,http://localhost:3000,http://127.0.0.1:3000",
         )
         cors_origins = tuple(origin.strip() for origin in origins_value.split(",") if origin.strip())
         if environment == "production" and (not cors_origins or "*" in cors_origins):
