@@ -1,6 +1,142 @@
-# PahaadCare — Offline-first healthcare access prototype
+# PahaadCare — Offline-First Remote Patient Monitoring (RPM) & Healthcare Platform
 
-A polished demonstration PWA for a healthcare access concept for remote Himalayan communities.
+A demonstration Remote Patient Monitoring (RPM) and healthcare access Progressive Web Application (PWA) designed for remote and underserved Himalayan communities.
+
+> [!IMPORTANT]
+> **Hackathon Demonstration Prototype**
+> This application is built exclusively for hackathon evaluation, offline synchronization demonstrations, and technical review. It is not clinically validated or intended for actual medical care. All patient profiles, biometric thresholds, and contact targets are synthetic demonstration fixtures. All alerts and escalations use local simulation and SQLite persistence without real external telecommunications (no real SMS, email, or telephone calls).
+
+---
+
+## Clean Installation and Startup Procedure
+
+Follow these step-by-step instructions for a clean setup and launch from a freshly cloned repository.
+
+### Prerequisites
+
+- **Node.js**: v18.0+ or v20.0+ (with npm)
+- **Python**: v3.11+ (Python 3.14 verified)
+- **Git**
+- Recommended OS: Windows 10/11, macOS, or Linux
+
+---
+
+### Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/HARSHSINGH-17/pahadcare.git
+cd pahadcare
+```
+
+---
+
+### Step 2: Backend Setup (Python Virtual Environment)
+
+Open a terminal in the project root:
+
+#### Windows (PowerShell):
+```powershell
+# Create virtual environment
+python -m venv .venv
+
+# Activate virtual environment
+.\.venv\Scripts\Activate.ps1
+
+# Install backend dependencies
+pip install -r backend/requirements.txt
+```
+
+#### macOS / Linux:
+```bash
+# Create virtual environment
+python3 -m venv .venv
+
+# Activate virtual environment
+source .venv/bin/activate
+
+# Install backend dependencies
+pip install -r backend/requirements.txt
+```
+
+---
+
+### Step 3: Frontend Setup (npm)
+
+In the same project root directory:
+
+```bash
+npm install
+```
+
+---
+
+### Step 4: Launching the Application
+
+Run the backend and frontend in two separate terminal windows.
+
+#### Terminal 1 — Backend API Server & Escalation Worker:
+
+**Windows (PowerShell):**
+```powershell
+.\.venv\Scripts\Activate.ps1
+$env:ESCALATION_WORKER_ENABLED="true"
+python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+**macOS / Linux:**
+```bash
+source .venv/bin/activate
+export ESCALATION_WORKER_ENABLED=true
+python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+- **API Base URL**: `http://127.0.0.1:8000`
+- **Interactive Swagger Documentation**: `http://127.0.0.1:8000/docs`
+- **System Health Endpoint**: `http://127.0.0.1:8000/health`
+
+#### Terminal 2 — Frontend Development Server:
+
+```bash
+npm run dev
+```
+
+- **Web Dashboard**: `http://localhost:5173`
+
+---
+
+### Step 5: Demonstration Login & Credentials
+
+1. Open `http://localhost:5173` in Google Chrome or your modern browser.
+2. Log in using the pre-configured synthetic clinician credentials:
+   - **Username**: `clinician1`
+   - **Password**: `demo-password-2026`
+   - **Assigned Patients**: `PC-SYNTH01`, `PC-DEMO01`
+3. Explore the live RPM dashboard, simulate vital readings, test offline IndexedDB queueing, and observe durable alert escalations.
+
+---
+
+### Step 6: Quick Automated Verification (Optional)
+
+To verify all system components deterministically on a fresh install:
+
+```powershell
+# Run full backend pytest suite (160 tests)
+pytest -v
+
+# Run browser E2E test suite
+pytest backend/tests/test_browser.py -v
+
+# Run frontend unit & offline queue account isolation suite (16 tests)
+npm test
+
+# Run 10-scenario end-to-end validation runner
+python backend/validate_10_scenarios.py
+
+# Verify production single-file build
+npm run build
+```
+
+---
 
 ## Important prototype limits
 - Patient and medicine entries are sample data.
