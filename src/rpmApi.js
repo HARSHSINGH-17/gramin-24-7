@@ -18,6 +18,18 @@
  * - Supports AbortSignal to avoid stale responses overwriting newer state.
  */
 
+import {
+  DEMO_CLINICIAN_TOKEN,
+  DEMO_CLINICIAN_USER,
+  OFFLINE_DEMO_PATIENTS,
+  getOfflineAlerts,
+  acknowledgeOfflineAlert,
+  resolveOfflineAlert,
+  getOfflineMeasurements,
+  getOfflineDemoOverview,
+  getOfflinePatientLatestVitals,
+} from './offlineDemoData.js'
+
 export const TOKEN_STORAGE_KEY = 'pahaadcare-rpm-token'
 export const DEMO_STALE_THRESHOLD_MINUTES = 15
 
@@ -46,8 +58,14 @@ export class AccessDeniedError extends RpmApiError {
 }
 
 export function getApiBaseUrl() {
-  if (typeof window !== 'undefined' && window.__RPM_API_BASE_URL) {
-    return String(window.__RPM_API_BASE_URL).replace(/\/$/, '')
+  if (typeof window !== 'undefined') {
+    if (window.__RPM_API_BASE_URL) {
+      return String(window.__RPM_API_BASE_URL).replace(/\/$/, '')
+    }
+    const custom = localStorage.getItem('pc-api-base-url')
+    if (custom && custom.trim()) {
+      return String(custom).trim().replace(/\/$/, '')
+    }
   }
   const envUrl =
     typeof import.meta !== 'undefined' &&
@@ -63,6 +81,16 @@ export function getApiBaseUrl() {
     }
   }
   return 'http://127.0.0.1:8000'
+}
+
+export function setApiBaseUrl(url) {
+  if (typeof window !== 'undefined') {
+    if (url && String(url).trim()) {
+      localStorage.setItem('pc-api-base-url', String(url).trim().replace(/\/$/, ''))
+    } else {
+      localStorage.removeItem('pc-api-base-url')
+    }
+  }
 }
 
 
@@ -197,14 +225,34 @@ export async function rpmRequest(endpoint, {
  * Authentication
  */
 export async function loginClinician(username, password) {
-  const result = await rpmRequest('/api/v1/auth/token', {
-    method: 'POST',
-    body: { username, password },
-  })
-  if (result?.access_token) {
-    setStoredToken(result.access_token)
+  const isDemoUser =
+    username === 'dr.sharma' ||
+    username === 'clinician1' ||
+    password === 'Sharma@Gramin2026' ||
+    password === 'demo-password-2026'
+
+  try {
+    const result = await rpmRequest('/api/v1/auth/token', {
+      method: 'POST',
+      body: { username, password },
+    })
+    if (result?.access_token) {
+      setStoredToken(result.access_token)
+    }
+    return result
+  } catch (err) {
+    // If backend is unreachable (e.g. mobile Mixed Content / offline), seamlessly activate demo mode
+    if (err.code === 'network_error' && isDemoUser) {
+      setStoredToken(DEMO_CLINICIAN_TOKEN)
+      return {
+        access_token: DEMO_CLINICIAN_TOKEN,
+        token_type: 'bearer',
+        expires_in: 86400,
+        demo_mode: true,
+      }
+    }
+    throw err
   }
-  return result
 }
 
 export async function logoutClinician(token) {
@@ -224,22 +272,43 @@ export async function logoutClinician(token) {
  * Consolidated Monitoring Overview & Census API (Phase 4)
  */
 export async function fetchMonitorOverview({ signal = null, onUnauthorized = null } = {}) {
-  return rpmRequest('/api/v1/monitor/overview', { signal, onUnauthorized })
+  try {
+    return await rpmRequest('/api/v1/monitor/overview', { signal, onUnauthorized })
+  } catch (err) {
+    if (err.code === 'network_error') {
+      return getOfflineDemoOverview()
+    }
+    throw err
+  }
 }
 
 export async function fetchDoctorCensus({ signal = null, onUnauthorized = null } = {}) {
-  return rpmRequest('/api/v1/doctor/census', { signal, onUnauthorized })
+  try {
+    return await rpmRequest('/api/v1/doctor/census', { signal, onUnauthorized })
+  } catch (err) {
+    if (err.code === 'network_error') {
+      return getOfflineDemoOverview()
+    }
+    throw err
+  }
 }
 
 /**
  * Patient API
  */
 export async function fetchPatients({ limit = 50, cursor = null, signal = null, onUnauthorized = null } = {}) {
-  const params = new URLSearchParams()
-  if (limit) params.set('limit', String(limit))
-  if (cursor) params.set('cursor', String(cursor))
-  const qs = params.toString() ? `?${params.toString()}` : ''
-  return rpmRequest(`/api/v1/patients${qs}`, { signal, onUnauthorized })
+  try {
+    const params = new URLSearchParams()
+    if (limit) params.set('limit', String(limit))
+    if (cursor) params.set('cursor', String(cursor))
+    const qs = params.toString() ? `?${params.toString()}` : ''
+    return await rpmRequest(`/api/v1/patients${qs}`, { signal, onUnauthorized })
+  } catch (err) {
+    if (err.code === 'network_error') {
+      return { items: OFFLINE_DEMO_PATIENTS, next_cursor: null }
+    }
+    throw err
+  }
 }
 
 export async function fetchPatientDetail(
@@ -247,10 +316,24 @@ export async function fetchPatientDetail(
   { signal = null, onUnauthorized = null } = {}
 ) {
   if (!patientId) throw new Error('patientId is required')
-  return rpmRequest(`/api/v1/patients/${encodeURIComponent(patientId)}`, {
-    signal,
-    onUnauthorized,
-  })
+  try {
+    return await rpmRequest(`/api/v1/patients/${encodeURIComponent(patientId)}`, {
+      signal,
+      onUnauthorized,
+    })
+  } catch (err) {
+    if (err.code === 'network_error') {
+      const p = OFFLINE_DEMO_PATIENTS.find((item) => item.patient_id === patientId)
+      if (p) return { ...p }
+      return {
+        patient_id: patientId,
+        display_name: 'Patient ' + patientId,
+        status: 'Active',
+        is_simulated: true,
+      }
+    }
+    throw err
+  }
 }
 
 /**
@@ -261,15 +344,23 @@ export async function fetchPatientMeasurements(
   { limit = 50, cursor = null, measurementType = null, signal = null, onUnauthorized = null } = {}
 ) {
   if (!patientId) throw new Error('patientId is required')
-  const params = new URLSearchParams()
-  if (limit) params.set('limit', String(limit))
-  if (cursor) params.set('cursor', String(cursor))
-  if (measurementType) params.set('measurement_type', String(measurementType))
-  const qs = params.toString() ? `?${params.toString()}` : ''
-  return rpmRequest(`/api/v1/patients/${encodeURIComponent(patientId)}/measurements${qs}`, {
-    signal,
-    onUnauthorized,
-  })
+  try {
+    const params = new URLSearchParams()
+    if (limit) params.set('limit', String(limit))
+    if (cursor) params.set('cursor', String(cursor))
+    if (measurementType) params.set('measurement_type', String(measurementType))
+    const qs = params.toString() ? `?${params.toString()}` : ''
+    return await rpmRequest(`/api/v1/patients/${encodeURIComponent(patientId)}/measurements${qs}`, {
+      signal,
+      onUnauthorized,
+    })
+  } catch (err) {
+    if (err.code === 'network_error') {
+      const items = getOfflineMeasurements(patientId, measurementType)
+      return { items, next_cursor: null }
+    }
+    throw err
+  }
 }
 
 /**
@@ -284,14 +375,22 @@ export async function fetchAlerts({
   signal = null,
   onUnauthorized = null,
 } = {}) {
-  const params = new URLSearchParams()
-  if (patientId) params.set('patient_id', String(patientId))
-  if (status) params.set('status', String(status))
-  if (category) params.set('category', String(category))
-  if (limit) params.set('limit', String(limit))
-  if (cursor) params.set('cursor', String(cursor))
-  const qs = params.toString() ? `?${params.toString()}` : ''
-  return rpmRequest(`/api/v1/alerts${qs}`, { signal, onUnauthorized })
+  try {
+    const params = new URLSearchParams()
+    if (patientId) params.set('patient_id', String(patientId))
+    if (status) params.set('status', String(status))
+    if (category) params.set('category', String(category))
+    if (limit) params.set('limit', String(limit))
+    if (cursor) params.set('cursor', String(cursor))
+    const qs = params.toString() ? `?${params.toString()}` : ''
+    return await rpmRequest(`/api/v1/alerts${qs}`, { signal, onUnauthorized })
+  } catch (err) {
+    if (err.code === 'network_error') {
+      const items = getOfflineAlerts(patientId, status, category)
+      return { items, next_cursor: null }
+    }
+    throw err
+  }
 }
 
 /**
@@ -299,13 +398,20 @@ export async function fetchAlerts({
  */
 export async function acknowledgeAlert(alertId, { actorId = 'demo-clinician', note = null } = {}) {
   if (!alertId) throw new Error('alertId is required')
-  return rpmRequest(`/api/v1/alerts/${encodeURIComponent(alertId)}/acknowledge`, {
-    method: 'POST',
-    body: {
-      actor_id: actorId,
-      ...(note ? { note } : {}),
-    },
-  })
+  try {
+    return await rpmRequest(`/api/v1/alerts/${encodeURIComponent(alertId)}/acknowledge`, {
+      method: 'POST',
+      body: {
+        actor_id: actorId,
+        ...(note ? { note } : {}),
+      },
+    })
+  } catch (err) {
+    if (err.code === 'network_error') {
+      return acknowledgeOfflineAlert(alertId, actorId, note)
+    }
+    throw err
+  }
 }
 
 export async function resolveAlert(
@@ -313,14 +419,21 @@ export async function resolveAlert(
   { actorId = 'demo-clinician', resolutionCode = 'demo_review_complete', note = null } = {}
 ) {
   if (!alertId) throw new Error('alertId is required')
-  return rpmRequest(`/api/v1/alerts/${encodeURIComponent(alertId)}/resolve`, {
-    method: 'POST',
-    body: {
-      actor_id: actorId,
-      resolution_code: resolutionCode,
-      ...(note ? { note } : {}),
-    },
-  })
+  try {
+    return await rpmRequest(`/api/v1/alerts/${encodeURIComponent(alertId)}/resolve`, {
+      method: 'POST',
+      body: {
+        actor_id: actorId,
+        resolution_code: resolutionCode,
+        ...(note ? { note } : {}),
+      },
+    })
+  } catch (err) {
+    if (err.code === 'network_error') {
+      return resolveOfflineAlert(alertId, actorId, resolutionCode, note)
+    }
+    throw err
+  }
 }
 
 export function toValidUuid(raw) {
@@ -480,6 +593,9 @@ export async function syncBatchEvents(events, { signal = null, onUnauthorized = 
 export function getStoredUser() {
   const token = getStoredToken()
   if (!token) return null
+  if (token === DEMO_CLINICIAN_TOKEN) {
+    return { ...DEMO_CLINICIAN_USER }
+  }
   try {
     const parts = token.split('.')
     if (parts.length === 3) {
@@ -496,6 +612,7 @@ export function getStoredUser() {
         username: payload.sub,
         role: payload.role,
         patient_ids: payload.patient_ids,
+        full_name: payload.full_name || payload.sub,
       }
     }
   } catch {}
@@ -503,20 +620,51 @@ export function getStoredUser() {
 }
 
 export async function fetchEscalationPolicies({ signal = null, onUnauthorized = null } = {}) {
-  return rpmRequest('/api/v1/escalation/policies', {
-    method: 'GET',
-    signal,
-    onUnauthorized,
-  })
+  try {
+    return await rpmRequest('/api/v1/escalation/policies', {
+      method: 'GET',
+      signal,
+      onUnauthorized,
+    })
+  } catch (err) {
+    if (err.code === 'network_error') {
+      return {
+        policies: [
+          {
+            severity: 'critical',
+            level1_target: 'primary_clinician',
+            level1_after_minutes: 5,
+            level2_target: 'supervising_clinician',
+            level2_after_minutes: 15,
+          },
+          {
+            severity: 'high',
+            level1_target: 'primary_clinician',
+            level1_after_minutes: 15,
+            level2_target: 'supervising_clinician',
+            level2_after_minutes: 30,
+          },
+        ],
+      }
+    }
+    throw err
+  }
 }
 
 export async function fetchAlertEscalation(alertId, { signal = null, onUnauthorized = null } = {}) {
   if (!alertId) throw new Error('alertId is required')
-  return rpmRequest(`/api/v1/alerts/${encodeURIComponent(alertId)}/escalations`, {
-    method: 'GET',
-    signal,
-    onUnauthorized,
-  })
+  try {
+    return await rpmRequest(`/api/v1/alerts/${encodeURIComponent(alertId)}/escalations`, {
+      method: 'GET',
+      signal,
+      onUnauthorized,
+    })
+  } catch (err) {
+    if (err.code === 'network_error') {
+      return null
+    }
+    throw err
+  }
 }
 
 export async function triggerEscalationProcess(body = {}, { signal = null, onUnauthorized = null } = {}) {
@@ -529,11 +677,28 @@ export async function triggerEscalationProcess(body = {}, { signal = null, onUna
 }
 
 export async function fetchDemoThresholds({ signal = null, onUnauthorized = null } = {}) {
-  return rpmRequest('/api/v1/demo/thresholds', {
-    method: 'GET',
-    signal,
-    onUnauthorized,
-  })
+  try {
+    return await rpmRequest('/api/v1/demo/thresholds', {
+      method: 'GET',
+      signal,
+      onUnauthorized,
+    })
+  } catch (err) {
+    if (err.code === 'network_error') {
+      return {
+        thresholds: {
+          heart_rate: { low: 50, high: 100, critical_low: 40, critical_high: 120, unit: 'bpm' },
+          oxygen_saturation: { low: 92, critical_low: 88, unit: '%' },
+          body_temperature: { high: 38.0, critical_high: 39.5, unit: '°C' },
+          systolic_blood_pressure: { high: 140, critical_high: 160, unit: 'mmHg' },
+          diastolic_blood_pressure: { high: 90, critical_high: 100, unit: 'mmHg' },
+        },
+        stale_threshold_minutes: 15,
+        disclaimer: 'SIMULATED DEMO THRESHOLDS ONLY',
+      }
+    }
+    throw err
+  }
 }
 
 export async function fetchEscalationWorkerStatus({ signal = null, onUnauthorized = null } = {}) {
@@ -569,11 +734,18 @@ export async function getCurrentUserProfile({ signal = null, onUnauthorized = nu
 
 export async function fetchPatientLatestVitals(patientId, { signal = null, onUnauthorized = null } = {}) {
   if (!patientId) throw new Error('patientId is required')
-  return rpmRequest(`/api/v1/patients/${encodeURIComponent(patientId)}/vitals/latest`, {
-    method: 'GET',
-    signal,
-    onUnauthorized,
-  })
+  try {
+    return await rpmRequest(`/api/v1/patients/${encodeURIComponent(patientId)}/vitals/latest`, {
+      method: 'GET',
+      signal,
+      onUnauthorized,
+    })
+  } catch (err) {
+    if (err.code === 'network_error') {
+      return getOfflinePatientLatestVitals(patientId)
+    }
+    throw err
+  }
 }
 
 export async function logPatientVitalDirect(patientId, vitalData, { signal = null, onUnauthorized = null } = {}) {

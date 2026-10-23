@@ -1,6 +1,28 @@
 import React from 'react'
-import { CheckCircle2, Database, HeartPulse, Lock, Mail, ShieldAlert, ShieldCheck, User, UserPlus } from 'lucide-react'
-import { checkBackendHealth, loginClinician, registerUser } from './rpmApi'
+import {
+  CheckCircle2,
+  Database,
+  Globe,
+  HeartPulse,
+  Lock,
+  Mail,
+  RefreshCw,
+  Server,
+  Settings,
+  ShieldAlert,
+  ShieldCheck,
+  User,
+  UserPlus,
+} from 'lucide-react'
+import {
+  checkBackendHealth,
+  getApiBaseUrl,
+  loginClinician,
+  registerUser,
+  setApiBaseUrl,
+  setStoredToken,
+} from './rpmApi'
+import { DEMO_CLINICIAN_TOKEN } from './offlineDemoData.js'
 
 export default function ClinicianLogin({ onLoginSuccess, onGoToPatientPortal }) {
   const [activeTab, setActiveTab] = React.useState('login') // 'login' | 'register'
@@ -9,6 +31,11 @@ export default function ClinicianLogin({ onLoginSuccess, onGoToPatientPortal }) 
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState('')
   const [successMsg, setSuccessMsg] = React.useState('')
+
+  // Server configuration drawer
+  const [showServerConfig, setShowServerConfig] = React.useState(false)
+  const [customApiUrl, setCustomApiUrl] = React.useState(() => getApiBaseUrl())
+  const [serverTestStatus, setServerTestStatus] = React.useState(null)
 
   // Registration fields
   const [regFullName, setRegFullName] = React.useState('')
@@ -25,28 +52,78 @@ export default function ClinicianLogin({ onLoginSuccess, onGoToPatientPortal }) 
     database: 'local',
   })
 
+  const testConnection = React.useCallback(async () => {
+    setBackendStatus((prev) => ({ ...prev, checking: true }))
+    try {
+      const res = await checkBackendHealth()
+      if (res.ok) {
+        setBackendStatus({
+          checking: false,
+          online: true,
+          database: res.data?.database || 'connected',
+        })
+        return true
+      } else {
+        setBackendStatus({ checking: false, online: false, database: 'offline' })
+        return false
+      }
+    } catch {
+      setBackendStatus({ checking: false, online: false, database: 'offline' })
+      return false
+    }
+  }, [])
+
   React.useEffect(() => {
     let isMounted = true
-    checkBackendHealth()
-      .then((res) => {
-        if (!isMounted) return
-        if (res.ok) {
-          setBackendStatus({
-            checking: false,
-            online: true,
-            database: res.data?.database || 'connected',
-          })
-        } else {
-          setBackendStatus({ checking: false, online: false, database: 'offline' })
-        }
-      })
-      .catch(() => {
-        if (isMounted) setBackendStatus({ checking: false, online: false, database: 'offline' })
-      })
+    testConnection().then(() => {
+      if (!isMounted) return
+    })
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [testConnection])
+
+  const handleSaveApiUrl = async () => {
+    const trimmed = customApiUrl.trim()
+    setServerTestStatus({ testing: true, msg: 'Pinging API server...' })
+    setApiBaseUrl(trimmed)
+    try {
+      const res = await checkBackendHealth()
+      if (res.ok) {
+        setServerTestStatus({ ok: true, msg: `Connected successfully! Database: ${res.data?.database || 'ready'}` })
+        setBackendStatus({ checking: false, online: true, database: res.data?.database || 'connected' })
+        setError('')
+      } else {
+        setServerTestStatus({ ok: false, msg: 'Ping responded with error or server unreachable.' })
+        setBackendStatus({ checking: false, online: false, database: 'offline' })
+      }
+    } catch {
+      setServerTestStatus({ ok: false, msg: 'Could not reach server at this URL.' })
+      setBackendStatus({ checking: false, online: false, database: 'offline' })
+    }
+  }
+
+  const handleResetApiUrl = async () => {
+    setApiBaseUrl('')
+    const defaultUrl = getApiBaseUrl()
+    setCustomApiUrl(defaultUrl)
+    setServerTestStatus({ testing: true, msg: 'Testing default backend URL...' })
+    try {
+      const res = await checkBackendHealth()
+      setServerTestStatus({
+        ok: res.ok,
+        msg: res.ok ? 'Connected to default URL!' : 'Default URL is currently unreachable.',
+      })
+      setBackendStatus({
+        checking: false,
+        online: res.ok,
+        database: res.ok ? (res.data?.database || 'connected') : 'offline',
+      })
+    } catch {
+      setServerTestStatus({ ok: false, msg: 'Default URL unreachable.' })
+      setBackendStatus({ checking: false, online: false, database: 'offline' })
+    }
+  }
 
   const handleLoginSubmit = async (e) => {
     if (e) e.preventDefault()
@@ -57,7 +134,19 @@ export default function ClinicianLogin({ onLoginSuccess, onGoToPatientPortal }) 
       await loginClinician(username.trim(), password)
       if (onLoginSuccess) onLoginSuccess()
     } catch (err) {
-      setError(err.message || 'Failed to authenticate clinician credentials.')
+      // If user submitted demo credentials but network failed, activate offline demo mode
+      if (
+        (username.trim() === 'dr.sharma' || username.trim() === 'clinician1') &&
+        err.code === 'network_error'
+      ) {
+        setStoredToken(DEMO_CLINICIAN_TOKEN)
+        setSuccessMsg('Signed in with Offline Demo Fallback.')
+        setTimeout(() => {
+          if (onLoginSuccess) onLoginSuccess()
+        }, 300)
+      } else {
+        setError(err.message || 'Failed to authenticate clinician credentials.')
+      }
     } finally {
       setLoading(false)
     }
@@ -103,13 +192,10 @@ export default function ClinicianLogin({ onLoginSuccess, onGoToPatientPortal }) 
     try {
       await loginClinician('dr.sharma', 'Sharma@Gramin2026')
       if (onLoginSuccess) onLoginSuccess()
-    } catch (err) {
-      try {
-        await loginClinician('clinician1', 'demo-password-2026')
-        if (onLoginSuccess) onLoginSuccess()
-      } catch {
-        setError(err.message || 'Failed to authenticate demo clinician.')
-      }
+    } catch {
+      // Guaranteed zero-friction demo mode activation
+      setStoredToken(DEMO_CLINICIAN_TOKEN)
+      if (onLoginSuccess) onLoginSuccess()
     } finally {
       setLoading(false)
     }
@@ -175,6 +261,30 @@ export default function ClinicianLogin({ onLoginSuccess, onGoToPatientPortal }) 
             : 'Register a new clinical medical officer or administrator into the live database.'}
         </p>
 
+        {!backendStatus.online && !backendStatus.checking && (
+          <div
+            style={{
+              background: '#f0fdf4',
+              border: '1px solid #bbf7d0',
+              borderRadius: '8px',
+              padding: '10px 14px',
+              fontSize: '12px',
+              color: '#166534',
+              marginBottom: '16px',
+              textAlign: 'left',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '8px',
+            }}
+          >
+            <ShieldCheck size={18} style={{ color: '#16a34a', flexShrink: 0, marginTop: '2px' }} />
+            <div>
+              <strong>Demonstration Mode Ready:</strong> Remote backend is offline or unconfigured on this device.
+              Click <strong>Quick Demo Clinician Sign In</strong> below to launch the one-click demo with synthetic Himalayan patient telemetry and alerts.
+            </div>
+          </div>
+        )}
+
         {/* Auth mode toggle tabs */}
         <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
           <button
@@ -224,9 +334,39 @@ export default function ClinicianLogin({ onLoginSuccess, onGoToPatientPortal }) 
         </div>
 
         {error && (
-          <p className="rpm-login-error" role="alert">
-            {error}
-          </p>
+          <div
+            className="rpm-login-error"
+            role="alert"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              padding: '10px 14px',
+              backgroundColor: '#fef2f2',
+              color: '#dc2626',
+              borderRadius: '8px',
+              fontSize: '13px',
+              marginBottom: '16px',
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <ShieldAlert size={16} />
+              {error}
+            </span>
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={handleDemoSignIn}
+              style={{
+                alignSelf: 'flex-start',
+                fontSize: '11px',
+                padding: '4px 10px',
+                marginTop: '4px',
+              }}
+            >
+              Continue in Offline Demo Mode →
+            </button>
+          </div>
         )}
 
         {successMsg && (
@@ -299,6 +439,93 @@ export default function ClinicianLogin({ onLoginSuccess, onGoToPatientPortal }) 
               <ShieldCheck size={16} />
               Quick Demo Clinician Sign In
             </button>
+
+            {/* Collapsible Backend Server Configuration */}
+            <div style={{ marginTop: '14px', borderTop: '1px solid #e2e8f0', paddingTop: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setShowServerConfig(!showServerConfig)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#64748b',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  margin: '0 auto',
+                  padding: '4px 8px',
+                }}
+              >
+                <Settings size={13} />
+                {showServerConfig ? 'Hide Server Configuration' : '⚙️ Backend Server Settings'}
+              </button>
+
+              {showServerConfig && (
+                <div
+                  style={{
+                    marginTop: '10px',
+                    padding: '12px',
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    textAlign: 'left',
+                    fontSize: '12px',
+                  }}
+                >
+                  <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', color: '#334155' }}>
+                    Backend API Base URL:
+                    <div className="rpm-input-wrap" style={{ marginTop: '4px' }}>
+                      <Server size={14} />
+                      <input
+                        type="url"
+                        value={customApiUrl}
+                        onChange={(e) => setCustomApiUrl(e.target.value)}
+                        placeholder="https://gramin-24-7-api.onrender.com"
+                        style={{ fontSize: '12px' }}
+                      />
+                    </div>
+                  </label>
+
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                    <button
+                      type="button"
+                      className="button button-primary"
+                      onClick={handleSaveApiUrl}
+                      style={{ fontSize: '11px', padding: '6px 10px', flex: 1 }}
+                    >
+                      Connect & Save
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={handleResetApiUrl}
+                      style={{ fontSize: '11px', padding: '6px 10px' }}
+                    >
+                      Reset
+                    </button>
+                  </div>
+
+                  {serverTestStatus && (
+                    <p
+                      style={{
+                        marginTop: '8px',
+                        fontSize: '11px',
+                        color: serverTestStatus.ok ? '#15803d' : '#b91c1c',
+                        fontWeight: '500',
+                      }}
+                    >
+                      {serverTestStatus.msg}
+                    </p>
+                  )}
+
+                  <p style={{ marginTop: '8px', fontSize: '10px', color: '#64748b', lineHeight: 1.4 }}>
+                    💡 <strong>Running on Vercel?</strong> Set <code>VITE_RPM_API_BASE_URL</code> in your Vercel Project Settings &gt; Environment Variables to point to your live cloud backend.
+                  </p>
+                </div>
+              )}
+            </div>
           </form>
         ) : (
           <form onSubmit={handleRegisterSubmit} className="rpm-auth-form">

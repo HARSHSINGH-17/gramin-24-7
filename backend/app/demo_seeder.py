@@ -14,7 +14,7 @@ import logging
 import os
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from .auth import hash_password
+from .auth import hash_password, verify_password
 from .models import (
     Alert,
     AlertCategory,
