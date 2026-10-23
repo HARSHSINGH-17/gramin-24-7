@@ -127,7 +127,7 @@ def generate_scenario(scenario: SyntheticScenario | str) -> SyntheticSequence:
     if selected is SyntheticScenario.FUTURE:
         return SyntheticSequence(
             selected,
-            (_measurement(selected, 0, 78, BASE_TIME + timedelta(days=1)),),
+            (_measurement(selected, 0, 78, BASE_TIME + timedelta(days=365)),),
         )
     if selected is SyntheticScenario.OFFLINE_SYNC:
         return SyntheticSequence(

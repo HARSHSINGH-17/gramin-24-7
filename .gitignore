@@ -37,3 +37,4 @@ Desktop.ini
 # Temporary scratch files
 scratch/
 fix_browser_test.py
+graphify-out/cache/

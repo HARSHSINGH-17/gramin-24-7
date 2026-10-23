@@ -96,29 +96,97 @@ def browser_env(tmp_path_factory):
         main_module.settings = original_settings
 
 
+def test_browser_restored_onboarding_flow(browser_env):
+    """
+    Verifies the restored onboarding flow end-to-end in the browser:
+    1. Unauthenticated entry at / opens Language Selection ('Choose your language').
+    2. Original 5 Himalayan language options are displayed.
+    3. Selecting a language proceeds to Role Selection ('Who are you?').
+    4. Doctor role navigates to #/doctor (clinician login gate).
+    5. Back navigation returns to Role Selection.
+    6. Patient role navigates to #/patient (patient login / register).
+    7. Back navigation returns to Role Selection.
+    8. Family member role opens Patient code input.
+    9. Unregistered patient code displays 'Patient not found on this device.'
+    10. Back navigation returns to Role Selection.
+    11. 'Choose your language' returns to Language Selection.
+    """
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        context = browser.new_context()
+        page = context.new_page()
+
+        # Open unauthenticated root
+        page.goto(browser_env["frontend_url"] + "/")
+
+        # 1. Language Selection Screen
+        page.wait_for_selector("text=Choose your language", timeout=10000)
+        assert page.locator("button:has-text('English')").is_visible()
+        assert page.locator("button:has-text('हिन्दी')").is_visible()
+        assert page.locator("button:has-text('गढ़वाली')").is_visible()
+        assert page.locator("button:has-text('कुमाऊँनी')").is_visible()
+        assert page.locator("button:has-text('हिमाचली पहाड़ी')").is_visible()
+
+        # 2. Select English -> transitions to Role Selection
+        page.locator("button:has-text('English')").click()
+        page.wait_for_selector("text=Who are you?", timeout=5000)
+        assert page.locator("button:has-text('Patient')").is_visible()
+        assert page.locator("button:has-text('Family member')").is_visible()
+        assert page.locator("button:has-text('Doctor')").is_visible()
+
+        # 3. Doctor navigation
+        page.locator("button:has-text('Doctor')").click()
+        page.wait_for_selector("text=PROTECTED RPM WORKSPACE", timeout=10000)
+        assert "#/doctor" in page.url
+
+        # Back to role selection from doctor login
+        back_doctor_btn = page.locator("button:has-text('Back to role selection')").first
+        assert back_doctor_btn.is_visible()
+        back_doctor_btn.click()
+        page.wait_for_selector("text=Who are you?", timeout=5000)
+
+        # 4. Patient navigation
+        page.locator("button:has-text('Patient')").click()
+        page.wait_for_selector("text=Your health, your care, your community.", timeout=10000)
+        assert "#/patient" in page.url
+
+        # Back to role selection from patient login
+        back_patient_btn = page.locator("button:has-text('Back to role selection')").first
+        assert back_patient_btn.is_visible()
+        back_patient_btn.click()
+        page.wait_for_selector("text=Who are you?", timeout=5000)
+
+        # 5. Family member navigation & patient code check
+        page.locator("button:has-text('Family member')").click()
+        page.wait_for_selector("text=Patient code", timeout=5000)
+        page.fill("input[placeholder='PC-ABC123']", "PC-UNREGISTERED")
+        page.click("button:has-text('Open patient')")
+        page.wait_for_selector("text=Patient not found on this device.", timeout=5000)
+
+        # Back to role selection from family member
+        page.locator("button:has-text('Back')").click()
+        page.wait_for_selector("text=Who are you?", timeout=5000)
+
+        # 6. Change language back to language selection
+        page.locator("button:has-text('Choose your language')").click()
+        page.wait_for_selector("text=Choose your language", timeout=5000)
+
+        browser.close()
+
+
 def test_browser_full_workflow(browser_env):
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         context = browser.new_context()
         page = context.new_page()
-        page.on("console", lambda m: print("PAGE CONSOLE:", m.text))
-        page.on("response", lambda r: print("RESPONSE:", r.url, r.status))
 
-        # Preload initial workspace user and API base URL
+        # Preload API base URL
         page.add_init_script(f"""
             window.__RPM_API_BASE_URL = '{browser_env['api_url']}';
-            localStorage.setItem('pc-auth-user', JSON.stringify('PC-DEMO01'));
-            localStorage.setItem('pc-patient-id', JSON.stringify('PC-DEMO01'));
-            localStorage.setItem('pc-patient-name', JSON.stringify('Demo Patient'));
         """)
 
-        # 1. Open frontend and wait for splash to clear
-        page.goto(browser_env["frontend_url"])
-        page.wait_for_selector(".ob-screen.splash-screen", state="detached", timeout=10000)
-
-        # Click on RPM Monitor tab in navigation
-        rpm_nav = page.locator("button", has_text="RPM Monitor").first
-        rpm_nav.click()
+        # 1. Open doctor workspace route directly
+        page.goto(browser_env["frontend_url"] + "/#/doctor")
 
         # 2. Verify synthetic-data banner and login panel
         page.wait_for_selector("text=PROTECTED RPM WORKSPACE", timeout=10000)
@@ -136,7 +204,7 @@ def test_browser_full_workflow(browser_env):
         page.click("button:has-text('Sign in')")
 
         # Wait for dashboard to load
-        page.wait_for_selector("text=Backend snapshot loaded")
+        page.wait_for_selector("text=Backend snapshot loaded", timeout=10000)
         assert page.locator("text=SIMULATED DATA").first.is_visible()
         assert page.locator("text=PC-SYNTH01").first.is_visible()
         assert page.locator("text=Active demo alerts").first.is_visible()
@@ -159,11 +227,9 @@ def test_browser_full_workflow(browser_env):
         assert audit_status["checked_records"] >= 2
 
         # 8. Test 403 Forbidden handling in frontend:
-        # A 403 must display error message WITHOUT logging the user out.
         forbidden_test_script = """
         async () => {
             const token = sessionStorage.getItem('pahaadcare-rpm-token');
-            // Try to submit cross-patient measurement
             const res = await fetch(window.__RPM_API_BASE_URL + '/api/v1/measurements', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
@@ -184,12 +250,10 @@ def test_browser_full_workflow(browser_env):
         """
         status_code = page.evaluate(forbidden_test_script)
         assert status_code == 403
-        # Session token is still in sessionStorage
         token = page.evaluate("sessionStorage.getItem('pahaadcare-rpm-token')")
         assert token is not None and len(token) > 0
 
         # 9. Test Sign-out:
-        # Sign-out calls backend revocation endpoint and clears session
         signout_btn = page.locator("button:has-text('Sign out of RPM workspace')")
         assert signout_btn.is_visible()
         signout_btn.click()
@@ -234,14 +298,10 @@ def test_browser_patient_selection_and_stale_data(browser_env):
 
         page.add_init_script(f"""
             window.__RPM_API_BASE_URL = '{browser_env['api_url']}';
-            localStorage.setItem('pc-auth-user', JSON.stringify('PC-DEMO01'));
-            localStorage.setItem('pc-patient-id', JSON.stringify('PC-DEMO01'));
         """)
 
-        # Open and navigate to RPM Monitor
-        page.goto(browser_env["frontend_url"])
-        page.wait_for_selector(".ob-screen.splash-screen", state="detached", timeout=10000)
-        page.locator("button", has_text="RPM Monitor").first.click()
+        # Open and navigate to doctor RPM workspace
+        page.goto(browser_env["frontend_url"] + "/#/doctor")
 
         # Sign in
         page.wait_for_selector("text=PROTECTED RPM WORKSPACE", timeout=10000)
@@ -295,14 +355,10 @@ def test_browser_offline_queue_and_sync(browser_env):
 
         page.add_init_script(f"""
             window.__RPM_API_BASE_URL = '{browser_env['api_url']}';
-            localStorage.setItem('pc-auth-user', JSON.stringify('PC-DEMO01'));
-            localStorage.setItem('pc-patient-id', JSON.stringify('PC-DEMO01'));
         """)
 
-        # Open and navigate to RPM Monitor
-        page.goto(browser_env["frontend_url"])
-        page.wait_for_selector(".ob-screen.splash-screen", state="detached", timeout=10000)
-        page.locator("button", has_text="RPM Monitor").first.click()
+        # Open and navigate to doctor RPM workspace
+        page.goto(browser_env["frontend_url"] + "/#/doctor")
 
         # Sign in
         page.wait_for_selector("text=PROTECTED RPM WORKSPACE", timeout=10000)
@@ -334,9 +390,7 @@ def test_browser_offline_queue_and_sync(browser_env):
         assert page.locator("text=queued").first.is_visible()
 
         # Test reload persistence: reload page and ensure queue state survived
-        page.reload()
-        page.wait_for_selector(".ob-screen.splash-screen", state="detached", timeout=10000)
-        page.locator("button", has_text="RPM Monitor").first.click()
+        page.goto(browser_env["frontend_url"] + "/#/doctor")
 
         # Check if session persisted or if login is needed
         try:

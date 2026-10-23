@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import os
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -10,16 +10,59 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, ConfigDict, Field
 
-from .auth import SecuritySettings, has_patient_access, issue_token, require_role, require_user, verify_password
+import hmac
+from .auth import (
+    SecuritySettings,
+    decode_token,
+    has_patient_access,
+    hash_password,
+    issue_token,
+    require_role,
+    require_user,
+    verify_password,
+)
 from .demo_dashboard import build_demo_dashboard_snapshot
 from .escalation import EscalationEngine, EscalationWorker
-from .models import MeasurementEvent
+from .models import DeviceReference, EventSource, HealthWorkerReference, MeasurementEvent, MeasurementType, MeasurementUnit
 from .repository import AlertNotFound, InvalidAlertTransition, SQLiteRepository
 from .store import EventIdConflict
 
 settings = SecuritySettings.from_environment()
 DEFAULT_DATABASE_PATH = Path(__file__).resolve().parents[1] / "data" / "pahaadcare.sqlite3"
-store = SQLiteRepository(os.environ.get("PAHAADCARE_DB_PATH", DEFAULT_DATABASE_PATH))
+
+
+def create_repository() -> SQLiteRepository | object:
+    env = os.environ.get("PAHAADCARE_ENV", "").strip().lower()
+    is_production = (env == "production") or (settings.environment == "production")
+    db_url = os.environ.get("DATABASE_URL") or os.environ.get("PAHAADCARE_DATABASE_URL")
+
+    if is_production:
+        if not db_url or not (db_url.startswith("postgres://") or db_url.startswith("postgresql://")):
+            raise RuntimeError(
+                "FATAL: Production environment (PAHAADCARE_ENV=production) requires DATABASE_URL "
+                "configured with a PostgreSQL connection string. Automatic SQLite fallback is strictly prohibited in production."
+            )
+        try:
+            from .postgres_repository import PostgresRepository
+            return PostgresRepository(db_url)
+        except Exception as exc:
+            raise RuntimeError(
+                f"FATAL: Production PostgreSQL connection failed: {exc}. "
+                "Automatic SQLite fallback is strictly prohibited in production."
+            ) from exc
+
+    if db_url and (db_url.startswith("postgres://") or db_url.startswith("postgresql://")):
+        try:
+            from .postgres_repository import PostgresRepository
+            return PostgresRepository(db_url)
+        except Exception as exc:
+            import logging
+            logging.getLogger("pahaadcare").warning("Failed to connect to PostgreSQL: %s. Falling back to SQLite.", exc)
+
+    return SQLiteRepository(os.environ.get("PAHAADCARE_DB_PATH", DEFAULT_DATABASE_PATH))
+
+
+store = create_repository()
 escalation_engine = EscalationEngine(repository=store)
 escalation_worker = EscalationWorker(
     engine=escalation_engine,
@@ -42,18 +85,28 @@ is_token_revoked = lambda jti: store.is_token_revoked(jti)
 get_settings = lambda: settings
 cors_kwargs: dict[str, object] = {
     "allow_origins": list(settings.cors_origins),
-    "allow_methods": ["GET", "POST", "OPTIONS"],
+    "allow_methods": ["*"],
     "allow_headers": ["*"],
     "allow_credentials": True,
 }
-if settings.environment in {"development", "test"}:
-    cors_kwargs["allow_origin_regex"] = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
-    cors_kwargs["allow_methods"] = ["*"]
+
+# In production: restrict CORS strictly to explicitly configured origins unless explicit regex is set
+if settings.environment == "production":
+    explicit_regex = os.getenv("PAHAADCARE_CORS_ORIGIN_REGEX", "").strip()
+    if explicit_regex:
+        cors_kwargs["allow_origin_regex"] = explicit_regex
+else:
+    # In development/test: allow convenient local & preview origins
+    cors_kwargs["allow_origin_regex"] = os.getenv(
+        "PAHAADCARE_CORS_ORIGIN_REGEX",
+        r"^https?://(localhost|127\.0\.0\.1|.*\.vercel\.app|.*\.netlify\.app|.*\.onrender\.com|.*\.railway\.app)(:\d+)?$",
+    )
 
 app.add_middleware(
     CORSMiddleware,
     **cors_kwargs,
 )
+
 
 
 class AcknowledgeRequest(BaseModel):
@@ -76,6 +129,44 @@ class TokenRequest(BaseModel):
 
     username: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=1, max_length=512)
+
+
+class RegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    username: str = Field(min_length=3, max_length=128)
+    email: str = Field(min_length=5, max_length=256)
+    password: str = Field(min_length=12, max_length=512)
+    role: str = Field(default="patient")  # 'clinician', 'patient', 'administrator', 'family'
+    full_name: str = Field(min_length=1, max_length=256)
+    patient_id: str | None = Field(default=None, max_length=64)
+    phone: str | None = Field(default=None, max_length=32)
+    village: str | None = Field(default=None, max_length=128)
+    district: str | None = Field(default=None, max_length=128)
+    invitation_code: str | None = Field(default=None, max_length=128)
+
+
+class CreatePatientRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    patient_id: str | None = Field(default=None, max_length=64)
+    display_name: str = Field(min_length=2, max_length=256)
+    age: int | None = Field(default=None, ge=0, le=150)
+    gender: str | None = Field(default=None, max_length=32)
+    phone: str | None = Field(default=None, max_length=32)
+    village: str | None = Field(default=None, max_length=128)
+    district: str | None = Field(default=None, max_length=128)
+    status: str = Field(default="active", max_length=64)
+
+
+class SubmitVitalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    measurement_type: str = Field(min_length=1, max_length=64)
+    value: float
+    unit: str = Field(min_length=1, max_length=32)
+    measured_at: datetime | None = None
+
 
 
 class SyncBatchRequest(BaseModel):
@@ -166,21 +257,231 @@ async def request_size_limit(request: Request, call_next):
 
 
 @app.get("/health")
+@app.get("/api/v1/health")
 def health() -> dict[str, str]:
     return {
         "status": "ok",
         "service": "pahaadcare-rpm-api",
         "api_version": "v1",
+        "database": getattr(store, "backend_name", "sqlite"),
         "checked_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
 
 
+@app.get("/ready")
+@app.get("/api/v1/ready")
+def ready() -> JSONResponse:
+    try:
+        if hasattr(store, "ping"):
+            store.ping()
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "ready",
+                "database": "connected",
+                "checked_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            },
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "degraded",
+                "database": "unreachable",
+                "error": str(exc),
+                "checked_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            },
+        )
+
+
+@app.post("/api/v1/auth/register", status_code=201)
+def register(body: RegisterRequest, request: Request) -> JSONResponse:
+    existing = store.get_user_by_username_or_email(body.username) or store.get_user_by_username_or_email(body.email)
+    if existing:
+        return error_response(
+            "user_conflict",
+            "A user with that username or email already exists.",
+            [{"field": "username", "reason": "already_registered"}],
+            request,
+            409,
+        )
+
+    role = body.role.strip().lower()
+    if role not in {"clinician", "administrator", "patient", "family"}:
+        return error_response(
+            "invalid_role",
+            "Role must be clinician, administrator, patient, or family.",
+            [{"field": "role", "reason": "invalid_enum"}],
+            request,
+            422,
+        )
+
+    # Privileged role registration security gate:
+    # Clinician and Administrator accounts cannot be created by public unauthenticated requests!
+    if role in {"clinician", "administrator"}:
+        authorized = False
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            token_str = auth_header[7:].strip()
+            try:
+                decoded = decode_token(token_str, settings, is_token_revoked)
+                if decoded.get("role") == "administrator":
+                    authorized = True
+            except Exception:
+                authorized = False
+
+        if not authorized and body.invitation_code:
+            expected_secret = os.getenv("PAHAADCARE_PROVISIONING_SECRET", "").strip()
+            if expected_secret and len(expected_secret) >= 16:
+                if hmac.compare_digest(body.invitation_code, expected_secret):
+                    authorized = True
+
+        if not authorized:
+            store.record_audit(
+                body.username,
+                "privileged_registration_denied",
+                None,
+                False,
+                {"role": role, "reason": "unauthorized_role_elevation"},
+            )
+            return error_response(
+                "forbidden",
+                "Public registration cannot create privileged clinician or administrator accounts. "
+                "Privileged accounts must be provisioned by an authenticated administrator or require a valid administrative provisioning key.",
+                [{"field": "role", "reason": "unauthorized_role_elevation"}],
+                request,
+                403,
+            )
+
+    # Family member registration security gate:
+    # Must link to an existing, valid patient record in the database!
+    if role == "family":
+        if not body.patient_id or not body.patient_id.strip():
+            return error_response(
+                "missing_patient_id",
+                "Family member registration requires an existing, valid patient_id.",
+                [{"field": "patient_id", "reason": "required_for_family_role"}],
+                request,
+                422,
+            )
+        target_patient = store.get_patient(body.patient_id.strip())
+        if not target_patient:
+            return error_response(
+                "patient_not_found",
+                "The specified patient record does not exist in the database.",
+                [{"field": "patient_id", "reason": "nonexistent_patient"}],
+                request,
+                404,
+            )
+        patient_id = body.patient_id.strip()
+    elif role == "patient":
+        patient_id = body.patient_id.strip() if body.patient_id else f"PC-PAT{uuid4().hex[:6].upper()}"
+    else:
+        patient_id = None
+
+    pw_hash = hash_password(body.password)
+    user_id = str(uuid4())
+    store.create_user(
+        user_id=user_id,
+        username=body.username,
+        email=body.email,
+        password_hash=pw_hash,
+        role=role,
+        full_name=body.full_name,
+        patient_id=patient_id,
+        phone=body.phone,
+    )
+
+    if role == "patient" and patient_id:
+        store.create_patient(
+            patient_id=patient_id,
+            display_name=body.full_name,
+            phone=body.phone,
+            village=body.village,
+            district=body.district,
+            is_simulated=0,
+        )
+
+    if role in {"clinician", "administrator"}:
+        patient_scope = ("*",)
+    else:
+        patient_scope = (patient_id,) if patient_id else None
+
+    token_str = issue_token(
+        username=body.username,
+        role=role,
+        settings=settings,
+        patient_ids=patient_scope,
+    )
+
+    store.record_audit(
+        body.username,
+        "user_registered",
+        None,
+        True,
+        {"role": role, "user_id": user_id, "patient_id": patient_id},
+    )
+
+    return JSONResponse(
+        status_code=201,
+        content={
+            "access_token": token_str,
+            "token_type": "bearer",
+            "role": role,
+            "username": body.username,
+            "full_name": body.full_name,
+            "patient_id": patient_id,
+            "user_id": user_id,
+            "request_id": request.headers.get("x-request-id", "local-request"),
+        },
+    )
+
+
 @app.post("/api/v1/auth/token")
 def token(body: TokenRequest, request: Request) -> JSONResponse:
+    # 1. Try real database users first!
+    db_user = store.get_user_by_username_or_email(body.username)
+    if db_user is not None:
+        if not verify_password(body.password, db_user["password_hash"]):
+            store.record_audit(body.username, "login_failed", None, False, {"reason": "invalid_password"})
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if db_user.get("patient_id"):
+            patient_scope = (db_user["patient_id"],)
+        elif db_user["role"] in {"clinician", "administrator"}:
+            patient_scope = ("*",)
+        else:
+            patient_scope = None
+        token_str = issue_token(
+            username=db_user["username"],
+            role=db_user["role"],
+            settings=settings,
+            patient_ids=patient_scope,
+        )
+        store.record_audit(db_user["username"], "login_success", None, True, {"role": db_user["role"]})
+        return JSONResponse(
+            status_code=200,
+            content={
+                "access_token": token_str,
+                "token_type": "bearer",
+                "role": db_user["role"],
+                "username": db_user["username"],
+                "full_name": db_user["full_name"],
+                "patient_id": db_user.get("patient_id"),
+                "user_id": db_user["user_id"],
+                "request_id": request.headers.get("x-request-id", "local-request"),
+            },
+        )
+
+    # 2. Fallback to demo credentials if demo is enabled
     if not settings.demo_enabled:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Demo authentication is not permitted in this environment",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     if not settings.demo_username or not settings.demo_password_hash:
         return error_response(
@@ -190,7 +491,10 @@ def token(body: TokenRequest, request: Request) -> JSONResponse:
             request,
             status.HTTP_503_SERVICE_UNAVAILABLE,
         )
-    if body.username != settings.demo_username or not verify_password(
+    is_clinician = (body.username == settings.demo_username)
+    is_patient = bool(settings.demo_patient_username and body.username == settings.demo_patient_username)
+
+    if not (is_clinician or is_patient) or not verify_password(
         body.password, settings.demo_password_hash
     ):
         raise HTTPException(
@@ -198,10 +502,65 @@ def token(body: TokenRequest, request: Request) -> JSONResponse:
             detail="Invalid username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    role = os.getenv("PAHAADCARE_DEMO_ROLE", "clinician").strip().lower()
-    if role not in {"clinician", "administrator"}:
-        return error_response("configuration_error", "Configured demo role is invalid.", [], request, 500)
-    return {"access_token": issue_token(body.username, role, settings), "token_type": "bearer"}
+
+    if is_clinician:
+        role = os.getenv("PAHAADCARE_DEMO_ROLE", "clinician").strip().lower()
+        if role not in {"clinician", "administrator"}:
+            return error_response("configuration_error", "Configured demo role is invalid.", [], request, 500)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "access_token": issue_token(body.username, role, settings),
+                "token_type": "bearer",
+                "role": role,
+                "username": body.username,
+                "full_name": "Demo Clinician",
+                "request_id": request.headers.get("x-request-id", "local-request"),
+            },
+        )
+    else:
+        patient_scope = (settings.demo_patient_ids[0],) if settings.demo_patient_ids else ("PC-SYNTH01",)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "access_token": issue_token(body.username, "patient", settings, patient_ids=patient_scope),
+                "token_type": "bearer",
+                "role": "patient",
+                "username": body.username,
+                "full_name": "Demo Patient",
+                "patient_id": patient_scope[0],
+                "request_id": request.headers.get("x-request-id", "local-request"),
+            },
+        )
+
+
+@app.get("/api/v1/auth/me")
+def get_current_user_profile(
+    request: Request,
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
+) -> dict:
+    username = str(user.get("sub", ""))
+    db_user = store.get_user_by_username_or_email(username)
+    if db_user:
+        return {
+            "user_id": db_user["user_id"],
+            "username": db_user["username"],
+            "email": db_user["email"],
+            "role": db_user["role"],
+            "full_name": db_user["full_name"],
+            "patient_id": db_user.get("patient_id"),
+            "phone": db_user.get("phone"),
+            "created_at": db_user["created_at"],
+            "request_id": request.headers.get("x-request-id", "local-request"),
+        }
+    return {
+        "username": username,
+        "role": user.get("role"),
+        "patient_ids": user.get("patient_ids", []),
+        "full_name": "Clinician User" if user.get("role") in ("clinician", "administrator") else "Patient User",
+        "request_id": request.headers.get("x-request-id", "local-request"),
+    }
+
 
 
 @app.post("/api/v1/auth/logout")
@@ -216,9 +575,12 @@ def logout(
 
 @app.get("/api/v1/demo/rpm-dashboard")
 def demo_rpm_dashboard(
-    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
 ) -> dict:
     """Development-only synthetic snapshot; not a clinical data endpoint."""
+    if user.get("role") not in {"clinician", "administrator"}:
+        store.record_audit(str(user["sub"]), "dashboard_read", None, False, {"reason": "insufficient_role"})
+        raise HTTPException(status_code=403, detail="Insufficient role")
     if not settings.demo_enabled:
         raise HTTPException(status_code=404, detail="Demo endpoint is disabled")
     if not has_patient_access(user, "PC-SYNTH01"):
@@ -238,8 +600,11 @@ def acknowledge_alert(
     alert_id: UUID,
     body: AcknowledgeRequest,
     request: Request,
-    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
 ) -> JSONResponse:
+    if user.get("role") not in {"clinician", "administrator"}:
+        store.record_audit(str(user["sub"]), "alert_acknowledge", alert_id, False, {"reason": "insufficient_role"})
+        raise HTTPException(status_code=403, detail="Insufficient role")
     try:
         existing = store.get_alert(alert_id)
         if not has_patient_access(user, existing.patient_id):
@@ -272,8 +637,11 @@ def resolve_alert(
     alert_id: UUID,
     body: ResolveRequest,
     request: Request,
-    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
 ) -> JSONResponse:
+    if user.get("role") not in {"clinician", "administrator"}:
+        store.record_audit(str(user["sub"]), "alert_resolve", alert_id, False, {"reason": "insufficient_role"})
+        raise HTTPException(status_code=403, detail="Insufficient role")
     try:
         existing = store.get_alert(alert_id)
         if not has_patient_access(user, existing.patient_id):
@@ -310,8 +678,11 @@ def resolve_alert(
 def submit_measurement(
     event: MeasurementEvent,
     request: Request,
-    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
 ) -> JSONResponse:
+    if user.get("role") not in {"clinician", "administrator", "patient"}:
+        store.record_audit(str(user["sub"]), "measurement_submit", None, False, {"patient_id": event.patient_id, "reason": "insufficient_role"})
+        raise HTTPException(status_code=403, detail="Insufficient role")
     if not has_patient_access(user, event.patient_id):
         store.record_audit(str(user["sub"]), "measurement_submit", None, False, {"patient_id": event.patient_id, "reason": "patient_scope_denied"})
         raise HTTPException(status_code=403, detail="Patient access denied")
@@ -342,14 +713,45 @@ def submit_measurement(
         },
     )
 
+@app.get("/api/v1/monitor/overview")
+@app.get("/api/v1/doctor/census")
+def get_monitor_overview(
+    request: Request,
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
+) -> dict:
+    if user.get("role") not in {"clinician", "administrator"}:
+        store.record_audit(str(user["sub"]), "monitor_overview_read", None, False, {"reason": "insufficient_role"})
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
+    allowed_patient_ids = (
+        None
+        if (
+            user.get("role") == "administrator"
+            and ("*" in user.get("patient_ids", []) or len(user.get("patient_ids", [])) == 0)
+        )
+        else list(user.get("patient_ids", []))
+    )
+    overview = store.get_monitor_overview(allowed_patient_ids=allowed_patient_ids)
+    store.record_audit(
+        str(user["sub"]),
+        "monitor_overview_read",
+        None,
+        True,
+        {"patient_count": overview["summary"]["total_patients"]},
+    )
+    overview["request_id"] = request.headers.get("x-request-id", "local-request")
+    return overview
+
 
 @app.get("/api/v1/patients")
 def list_patients(
     request: Request,
     limit: int = 50,
     cursor: str | None = None,
-    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
 ) -> dict:
+    if user.get("role") not in {"clinician", "administrator"}:
+        store.record_audit(str(user["sub"]), "patients_list", None, False, {"reason": "insufficient_role"})
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
     allowed_patient_ids = (
         None
         if (
@@ -370,6 +772,187 @@ def list_patients(
     }
 
 
+@app.get("/api/v1/patients/{patient_id}")
+def get_patient_detail(
+    patient_id: str,
+    request: Request,
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
+) -> dict:
+    if user.get("role") not in {"clinician", "administrator", "patient"}:
+        store.record_audit(str(user["sub"]), "patient_read", None, False, {"patient_id": patient_id, "reason": "insufficient_role"})
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
+    if not has_patient_access(user, patient_id):
+        store.record_audit(
+            str(user["sub"]),
+            "patient_read",
+            None,
+            False,
+            {"patient_id": patient_id, "reason": "patient_scope_denied"},
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Patient access denied")
+    patient = store.get_patient(patient_id)
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Patient {patient_id} not found")
+    store.record_audit(str(user["sub"]), "patient_read", None, True, {"patient_id": patient_id})
+    patient["request_id"] = request.headers.get("x-request-id", "local-request")
+    return patient
+
+
+@app.post("/api/v1/patients", status_code=201)
+def create_patient(
+    body: CreatePatientRequest,
+    request: Request,
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
+) -> JSONResponse:
+    if user.get("role") not in {"clinician", "administrator"}:
+        store.record_audit(str(user["sub"]), "patient_create", None, False, {"reason": "insufficient_role"})
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role to create patient")
+
+    patient_id = body.patient_id.strip() if body.patient_id else f"PC-PAT{uuid4().hex[:6].upper()}"
+    patient = store.create_patient(
+        patient_id=patient_id,
+        display_name=body.display_name,
+        age=body.age,
+        gender=body.gender,
+        phone=body.phone,
+        village=body.village,
+        district=body.district,
+        status=body.status,
+        is_simulated=0,
+    )
+    store.record_audit(
+        str(user["sub"]),
+        "patient_create",
+        None,
+        True,
+        {"patient_id": patient_id, "display_name": body.display_name},
+    )
+    patient["request_id"] = request.headers.get("x-request-id", "local-request")
+    return JSONResponse(status_code=201, content=patient)
+
+
+@app.get("/api/v1/patients/{patient_id}/vitals/latest")
+def get_patient_latest_vitals(
+    patient_id: str,
+    request: Request,
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
+) -> dict:
+    if user.get("role") not in {"clinician", "administrator", "patient", "family"}:
+        store.record_audit(str(user["sub"]), "vitals_read", None, False, {"patient_id": patient_id, "reason": "insufficient_role"})
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
+    if not has_patient_access(user, patient_id):
+        store.record_audit(
+            str(user["sub"]),
+            "vitals_read",
+            None,
+            False,
+            {"patient_id": patient_id, "reason": "patient_scope_denied"},
+        )
+        raise HTTPException(status_code=403, detail="Patient access denied")
+
+    data = store.get_latest_vitals_for_patient(patient_id)
+    data["request_id"] = request.headers.get("x-request-id", "local-request")
+    return data
+
+
+@app.post("/api/v1/patients/{patient_id}/vitals", status_code=201)
+def record_patient_vital(
+    patient_id: str,
+    body: SubmitVitalRequest,
+    request: Request,
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
+) -> JSONResponse:
+    if user.get("role") not in {"clinician", "administrator", "patient"}:
+        store.record_audit(str(user["sub"]), "vital_record", None, False, {"patient_id": patient_id, "reason": "insufficient_role"})
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
+    if not has_patient_access(user, patient_id):
+        store.record_audit(
+            str(user["sub"]),
+            "vital_record",
+            None,
+            False,
+            {"patient_id": patient_id, "reason": "patient_scope_denied"},
+        )
+        raise HTTPException(status_code=403, detail="Patient access denied")
+
+    try:
+        m_type = MeasurementType(body.measurement_type)
+    except ValueError:
+        return error_response(
+            "invalid_measurement_type",
+            f"Measurement type {body.measurement_type} is not supported.",
+            [{"field": "measurement_type", "reason": "unsupported_type"}],
+            request,
+            422,
+        )
+
+    try:
+        m_unit = MeasurementUnit(body.unit)
+    except ValueError:
+        return error_response(
+            "invalid_unit",
+            f"Unit {body.unit} is not supported for {body.measurement_type}.",
+            [{"field": "unit", "reason": "unsupported_unit"}],
+            request,
+            422,
+        )
+
+    measured_at = body.measured_at or datetime.now(timezone.utc)
+    user_role = str(user.get("role", "")).strip().lower()
+    if user_role in {"clinician", "administrator"}:
+        source = EventSource.HEALTH_WORKER
+        health_worker_ref = HealthWorkerReference(actor_id=str(user["sub"]))
+    else:
+        source = EventSource.PATIENT
+        health_worker_ref = None
+
+    event_args = {
+        "schema_version": "1.0",
+        "event_id": uuid4(),
+        "patient_id": patient_id,
+        "measurement_type": m_type,
+        "value": body.value,
+        "unit": m_unit,
+        "measured_at": measured_at,
+        "source": source,
+        "is_simulated": False,
+    }
+    if health_worker_ref is not None:
+        event_args["health_worker_reference"] = health_worker_ref
+
+    event = MeasurementEvent(**event_args)
+    submission = store.submit(event)
+    store.record_audit(
+        str(user["sub"]),
+        "vital_recorded",
+        None,
+        True,
+        {
+            "patient_id": patient_id,
+            "measurement_type": body.measurement_type,
+            "value": body.value,
+            "unit": body.unit,
+            "source": source.value,
+            "event_id": str(event.event_id),
+        },
+    )
+    return JSONResponse(
+        status_code=201,
+        content={
+            "status": submission.status,
+            "event_id": str(submission.event.event_id),
+            "patient_id": patient_id,
+            "measurement_type": body.measurement_type,
+            "value": body.value,
+            "unit": body.unit,
+            "received_at": submission.received_at.isoformat().replace("+00:00", "Z"),
+            "alert_ids": [str(a.alert_id) for a in submission.alerts],
+            "request_id": request.headers.get("x-request-id", "local-request"),
+        },
+    )
+
+
+
 @app.get("/api/v1/patients/{patient_id}/measurements")
 def list_measurements(
     patient_id: str,
@@ -377,8 +960,11 @@ def list_measurements(
     limit: int = 50,
     cursor: str | None = None,
     measurement_type: str | None = None,
-    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
 ) -> JSONResponse:
+    if user.get("role") not in {"clinician", "administrator", "patient"}:
+        store.record_audit(str(user["sub"]), "measurement_history_read", None, False, {"patient_id": patient_id, "reason": "insufficient_role"})
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
     if not has_patient_access(user, patient_id):
         store.record_audit(
             str(user["sub"]),
@@ -422,9 +1008,34 @@ def list_alerts(
     category: str | None = None,
     limit: int = 50,
     cursor: str | None = None,
-    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
 ) -> JSONResponse:
-    if patient_id:
+    user_role = user.get("role")
+    if user_role not in {"clinician", "administrator", "patient"}:
+        store.record_audit(str(user["sub"]), "alerts_read", None, False, {"reason": "insufficient_role"})
+        raise HTTPException(status_code=403, detail="Insufficient role")
+
+    if user_role == "patient":
+        if not patient_id:
+            store.record_audit(
+                str(user["sub"]),
+                "alerts_read",
+                None,
+                False,
+                {"reason": "cross_patient_access_forbidden"},
+            )
+            raise HTTPException(status_code=403, detail="Cross-patient alert list requires clinician role")
+        if not has_patient_access(user, patient_id):
+            store.record_audit(
+                str(user["sub"]),
+                "alerts_read",
+                None,
+                False,
+                {"patient_id": patient_id, "reason": "patient_scope_denied"},
+            )
+            raise HTTPException(status_code=403, detail="Patient access denied")
+        allowed_patient_ids = None
+    elif patient_id:
         if not has_patient_access(user, patient_id):
             store.record_audit(
                 str(user["sub"]),
@@ -476,8 +1087,11 @@ def list_alerts(
 def sync_events(
     body: SyncBatchRequest,
     request: Request,
-    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
 ) -> JSONResponse:
+    if user.get("role") not in {"clinician", "administrator", "patient"}:
+        store.record_audit(str(user["sub"]), "sync_events", None, False, {"reason": "insufficient_role"})
+        raise HTTPException(status_code=403, detail="Insufficient role")
     items, summary = store.sync_events(body.events, user)
     return JSONResponse(
         status_code=200,
@@ -489,11 +1103,34 @@ def sync_events(
     )
 
 
+@app.get("/api/v1/demo/thresholds")
+def get_demo_thresholds(
+    request: Request,
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
+) -> dict:
+    from .monitoring import DEMO_THRESHOLDS
+    items = {
+        m_type.value: {
+            "minimum": thresh.minimum,
+            "maximum": thresh.maximum,
+        }
+        for m_type, thresh in DEMO_THRESHOLDS.items()
+    }
+    return {
+        "thresholds": items,
+        "disclaimer": "DEMONSTRATION_ONLY thresholds; software rules not clinically validated.",
+        "request_id": request.headers.get("x-request-id", "local-request"),
+    }
+
+
 @app.get("/api/v1/escalation/policies")
 def list_escalation_policies(
     request: Request,
-    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
 ) -> dict:
+    if user.get("role") not in {"clinician", "administrator"}:
+        store.record_audit(str(user["sub"]), "escalation_policies_read", None, False, {"reason": "insufficient_role"})
+        raise HTTPException(status_code=403, detail="Insufficient role")
     policies = store.list_escalation_policies()
     return {
         "items": [p.model_dump(mode="json") for p in policies],
@@ -505,8 +1142,11 @@ def list_escalation_policies(
 def get_alert_escalations(
     alert_id: UUID,
     request: Request,
-    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
 ) -> JSONResponse:
+    if user.get("role") not in {"clinician", "administrator"}:
+        store.record_audit(str(user["sub"]), "alert_escalation_read", alert_id, False, {"reason": "insufficient_role"})
+        raise HTTPException(status_code=403, detail="Insufficient role")
     try:
         alert = store.get_alert(alert_id)
     except AlertNotFound:
@@ -551,8 +1191,11 @@ def get_alert_escalations(
 def process_escalations(
     request: Request,
     body: ProcessEscalationRequest | None = None,
-    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
 ) -> JSONResponse:
+    if user.get("role") not in {"clinician", "administrator"}:
+        store.record_audit(str(user["sub"]), "escalation_process", None, False, {"reason": "insufficient_role"})
+        raise HTTPException(status_code=403, detail="Insufficient role")
     now_dt = body.now if body else None
     dispatched = escalation_engine.process_due_escalations(now=now_dt)
     return JSONResponse(
@@ -568,8 +1211,10 @@ def process_escalations(
 @app.get("/api/v1/escalation/worker/status")
 def get_escalation_worker_status(
     request: Request,
-    user: dict[str, object] = Depends(require_role("clinician", get_settings, is_token_revoked)),
+    user: dict[str, object] = Depends(require_user(get_settings, is_token_revoked)),
 ) -> dict:
+    if user.get("role") not in {"clinician", "administrator"}:
+        raise HTTPException(status_code=403, detail="Insufficient role")
     return {
         "enabled": escalation_worker.enabled,
         "is_running": escalation_worker.is_running,

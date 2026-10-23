@@ -4,9 +4,10 @@ import { jsx, jsxs, Fragment } from 'react/jsx-runtime'
 const _ = React
 const i = { jsx, jsxs, Fragment }
 
-import { Activity as Nf, ArrowRight as Tt, Bell as sc, CalendarDays as Cf, Check as fl, ChevronLeft as Ef, ChevronRight as oc, CircleCheck as yo, Clock3 as ac, CloudOff as Pf, FileHeart as pl, HeartPulse as kr, Hospital as go, House as zf, LogOut as xo, MapPin as Ei, MessageCircle as Mf, Mic as _f, Pill as wr, Plus as hl, Search as Rf, Settings as uc, ShieldCheck as Lt, Stethoscope as Pi, TriangleAlert as $n, UserRound as Lf, Users as vc, Volume2 as cc, WifiOff as Tf, Wifi as Of, X as dc } from 'lucide-react'
+import { Activity as Nf, ArrowRight as Tt, Bell as sc, CalendarDays as Cf, Check as fl, ChevronLeft as Ef, ChevronRight as oc, CircleCheck as yo, Clock3 as ac, CloudOff as Pf, FileHeart as pl, HeartPulse as kr, Hospital as go, House as zf, LogOut as xo, MapPin as Ei, MessageCircle as Mf, Mic as _f, Pill as wr, Plus as hl, Search as Rf, Settings as uc, ShieldCheck as Lt, Stethoscope as Pi, TriangleAlert as $n, UserRound as Lf, Users as vc, Volume2 as cc, WifiOff as Tf, Wifi as Of, X as dc, Thermometer as ThIcon } from 'lucide-react'
 import { jf } from './Login'
-import RpmDashboard from './RpmDashboard'
+import { enqueueMeasurementEvent } from './offlineQueue'
+import { fetchPatientLatestVitals, logPatientVitalDirect } from './rpmApi'
 
 const Df = [
     [
@@ -162,9 +163,17 @@ const jo = () =>
   ];
 // ============ FIRST-TIME ONBOARDING (language + role selection) ============
 function Af({ language: k, setLanguage: N, tr: h, onPatient: Y }) {
-  const [O, U] = _.useState(
-      localStorage.getItem("pc-language") ? "role" : "lang",
-    ),
+  const [O, U] = _.useState(() => {
+    try {
+      if (
+        typeof sessionStorage !== "undefined" &&
+        sessionStorage.getItem("pc-lang-selected") === "true"
+      ) {
+        return "role";
+      }
+    } catch {}
+    return "lang";
+  }),
     [re, pe] = _.useState(""),
     [V, fe] = _.useState(""),
     [Z, le] = _.useState(null),
@@ -172,7 +181,12 @@ function Af({ language: k, setLanguage: N, tr: h, onPatient: Y }) {
   _.useEffect(() => {
     if (O !== "splash") return;
     const B = window.setTimeout(
-      () => U(localStorage.getItem("pc-language") ? "role" : "lang"),
+      () =>
+        U(
+          sessionStorage.getItem("pc-lang-selected") === "true"
+            ? "role"
+            : "lang",
+        ),
       1800,
     );
     return () => clearTimeout(B);
@@ -236,7 +250,11 @@ function Af({ language: k, setLanguage: N, tr: h, onPatient: Y }) {
             {
               className: `button ${k === B ? "button-primary" : "button-secondary"} ob-wide`,
               onClick: () => {
-                (N(B), U("role"));
+                N(B);
+                try {
+                  sessionStorage.setItem("pc-lang-selected", "true");
+                } catch {}
+                U("role");
               },
               children: q,
             },
@@ -263,12 +281,25 @@ function Af({ language: k, setLanguage: N, tr: h, onPatient: Y }) {
         }),
         i.jsxs("button", {
           className: "button button-secondary ob-wide",
-          onClick: () => U(X.name ? "docview" : "docreg"),
-          children: [i.jsx(Pi, { size: 18 }), " ", h("Doctor")],
+          onClick: () => {
+            if (typeof window !== "undefined") {
+              window.location.hash = "#/doctor";
+            }
+          },
+          children: [
+            i.jsx(Pi, { size: 18 }),
+            " ",
+            h("Doctor") + (h("Doctor") === "Doctor" ? " / Clinician" : " / Clinician"),
+          ],
         }),
         i.jsx("button", {
           className: "text-button",
-          onClick: () => U("lang"),
+          onClick: () => {
+            try {
+              sessionStorage.removeItem("pc-lang-selected");
+            } catch {}
+            U("lang");
+          },
           children: h("Choose your language"),
         }),
       ],
@@ -684,9 +715,15 @@ function Qf() {
     [te, it] = _.useState(""),
     [je, Ot] = _.useState(() => wt("pc-language", "en")),
     [st, Be] = _.useState(""),
-    [ot, at] = _.useState(() =>
-      wt("pc-role", wt("pc-auth-user", "") ? "patient" : ""),
-    ),
+    [ot, at] = _.useState(() => {
+      const authUser = wt("pc-auth-user", "");
+      if (authUser) return "patient";
+      const hash = typeof window !== "undefined" ? window.location.hash : "";
+      if (hash.startsWith("#/patient")) {
+        return wt("pc-role", "patient");
+      }
+      return "";
+    }),
     [ke, me] = _.useState(() =>
       wt("pc-members", [{ id: "self", name: "Self" }]),
     ),
@@ -1087,7 +1124,22 @@ function Qf() {
     [yl, qn] = _.useState(""),
     [Pn, Gn] = _.useState(null),
     [Nt, Jn] = _.useState(navigator.onLine),
-    [nn, Bt] = _.useState("Saved on this device");
+    [nn, Bt] = _.useState("Saved on this device"),
+    [patientVitals, setPatientVitals] = _.useState(() => {
+      const saved = wt("pc-vitals-" + (O || h || "PC-SYNTH01"), null);
+      if (saved) return saved;
+      return {
+        heart_rate: { value: 74, unit: "bpm", measured_at: new Date().toISOString(), status: "Normal (60–100)" },
+        oxygen_saturation: { value: 98, unit: "%", measured_at: new Date().toISOString(), status: "Optimal (≥95%)" },
+        body_temperature: { value: 36.8, unit: "°C", measured_at: new Date().toISOString(), status: "Normal (36.1–37.2)" },
+        blood_pressure: { systolic: 120, diastolic: 80, unit: "mmHg", measured_at: new Date().toISOString(), status: "Optimal (<120/80)" },
+      };
+    }),
+    [showLogVitalModal, setShowLogVitalModal] = _.useState(false),
+    [logVitalType, setLogVitalType] = _.useState("heart_rate"),
+    [logVitalVal, setLogVitalVal] = _.useState("75"),
+    [logVitalVal2, setLogVitalVal2] = _.useState("80"),
+    [logVitalFeedback, setLogVitalFeedback] = _.useState("");
   (_.useEffect(() => {
     const c = () => Jn(true),
       C = () => Jn(false);
@@ -1689,7 +1741,6 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
   }
   const Xn = [
     { name: "Overview", icon: zf },
-    { name: "RPM Monitor", icon: Nf },
     { name: "My Health", icon: pl },
     { name: "Medicines", icon: wr },
     { name: "Find Care", icon: Pi },
@@ -1753,12 +1804,391 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
       } catch {}
       return () => clearInterval(c);
     }, [kt]));
+    _.useEffect(() => {
+      const handleHash = () => {
+        const hash = typeof window !== "undefined" ? window.location.hash : "";
+        const authUser = wt("pc-auth-user", "");
+        if (!authUser) {
+          if (hash.startsWith("#/patient")) {
+            at("patient");
+          } else if (hash === "" || hash === "#/" || hash === "#") {
+            at("");
+          }
+        }
+      };
+      window.addEventListener("hashchange", handleHash);
+      return () => window.removeEventListener("hashchange", handleHash);
+    }, []);
+
+  _.useEffect(() => {
+    const pid = O || h || "PC-SYNTH01";
+    const local = wt("pc-vitals-" + pid, null);
+    if (local) {
+      setPatientVitals(local);
+    }
+    // Fetch live vitals from backend database
+    fetchPatientLatestVitals(pid)
+      .then((res) => {
+        if (res && res.vitals && Object.keys(res.vitals).length > 0) {
+          const v = res.vitals;
+          const merged = { ...(local || {}) };
+          if (v.heart_rate) {
+            const hr = v.heart_rate.value;
+            merged.heart_rate = {
+              value: hr,
+              unit: "bpm",
+              measured_at: v.heart_rate.measured_at,
+              status: hr < 60 ? "Low (<60)" : hr > 100 ? "High (>100)" : "Normal (60–100)",
+            };
+          }
+          if (v.oxygen_saturation) {
+            const ox = v.oxygen_saturation.value;
+            merged.oxygen_saturation = {
+              value: ox,
+              unit: "%",
+              measured_at: v.oxygen_saturation.measured_at,
+              status: ox < 92 ? "Critical (<92%)" : ox < 95 ? "Low (<95%)" : "Optimal (≥95%)",
+            };
+          }
+          if (v.body_temperature) {
+            const temp = v.body_temperature.value;
+            merged.body_temperature = {
+              value: temp,
+              unit: "°C",
+              measured_at: v.body_temperature.measured_at,
+              status: temp > 38.0 ? "Fever (>38.0°C)" : temp < 36.0 ? "Low (<36.0°C)" : "Normal (36.1–37.2)",
+            };
+          }
+          if (v.systolic_blood_pressure) {
+            const sys = v.systolic_blood_pressure.value;
+            const dia = v.diastolic_blood_pressure?.value || 80;
+            merged.blood_pressure = {
+              systolic: sys,
+              diastolic: dia,
+              unit: "mmHg",
+              measured_at: v.systolic_blood_pressure.measured_at,
+              status: sys >= 140 || dia >= 90 ? "High (≥140/90)" : sys >= 130 ? "Elevated" : "Optimal (<120/80)",
+            };
+          }
+          setPatientVitals(merged);
+          localStorage.setItem("pc-vitals-" + pid, JSON.stringify(merged));
+        }
+      })
+      .catch(() => {});
+  }, [h, O]);
+
+  function handleSavePatientVital(e) {
+    e.preventDefault();
+    const pid = O || h || "PC-SYNTH01";
+    const nowIso = new Date().toISOString();
+    let updated = { ...patientVitals };
+
+    if (logVitalType === "heart_rate") {
+      const v = parseFloat(logVitalVal) || 75;
+      const status = v < 60 ? "Low (<60)" : v > 100 ? "High (>100)" : "Normal (60–100)";
+      updated.heart_rate = { value: v, unit: "bpm", measured_at: nowIso, status };
+    } else if (logVitalType === "oxygen_saturation") {
+      const v = parseFloat(logVitalVal) || 98;
+      const status = v < 92 ? "Critical (<92%)" : v < 95 ? "Low (<95%)" : "Optimal (≥95%)";
+      updated.oxygen_saturation = { value: v, unit: "%", measured_at: nowIso, status };
+    } else if (logVitalType === "body_temperature") {
+      const v = parseFloat(logVitalVal) || 36.8;
+      const status = v > 38.0 ? "Fever (>38.0°C)" : v < 36.0 ? "Low (<36.0°C)" : "Normal (36.1–37.2)";
+      updated.body_temperature = { value: v, unit: "°C", measured_at: nowIso, status };
+    } else if (logVitalType === "blood_pressure") {
+      const sys = parseFloat(logVitalVal) || 120;
+      const dia = parseFloat(logVitalVal2) || 80;
+      const status = sys >= 140 || dia >= 90 ? "High (≥140/90)" : sys >= 130 ? "Elevated" : "Optimal (<120/80)";
+      updated.blood_pressure = { systolic: sys, diastolic: dia, unit: "mmHg", measured_at: nowIso, status };
+    }
+
+    setPatientVitals(updated);
+    localStorage.setItem("pc-vitals-" + pid, JSON.stringify(updated));
+
+    const eventUnitMap = {
+      heart_rate: "beats_per_minute",
+      oxygen_saturation: "percent",
+      body_temperature: "celsius",
+      blood_pressure: "mmHg",
+    };
+    const val = logVitalType === "blood_pressure" ? (parseFloat(logVitalVal) || 120) : (parseFloat(logVitalVal) || 75);
+    const mType = logVitalType === "blood_pressure" ? "systolic_blood_pressure" : logVitalType;
+
+    // 1. Enqueue in local durable offline queue
+    enqueueMeasurementEvent({
+      schema_version: "1.0",
+      event_id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : ("b" + Math.random().toString(16).slice(2, 10) + "-0000-4000-8000-000000000001"),
+      patient_id: pid,
+      measurement_type: mType,
+      value: val,
+      unit: eventUnitMap[logVitalType] || "beats_per_minute",
+      measured_at: nowIso,
+      source: "patient",
+      is_simulated: false,
+    }).catch(() => {});
+
+    // 2. Direct live database synchronization
+    logPatientVitalDirect(pid, {
+      measurement_type: mType,
+      value: val,
+      unit: eventUnitMap[logVitalType] || "beats_per_minute",
+      measured_at: nowIso,
+    }).catch(() => {});
+
+    setLogVitalFeedback(f("Vital observation saved to your personal health record."));
+    setShowLogVitalModal(false);
+    setTimeout(() => setLogVitalFeedback(""), 4000);
+  }
+
+  function renderPatientVitals(showFull = true) {
+    const pid = O || h || "PC-SYNTH01";
+    return i.jsxs("section", {
+      className: "patient-vitals-section",
+      children: [
+        i.jsxs("div", {
+          className: "patient-vitals-header",
+          children: [
+            i.jsxs("div", {
+              className: "patient-vitals-header-left",
+              children: [
+                i.jsxs("div", {
+                  className: "eyebrow",
+                  children: [
+                    i.jsx("span", { className: "eyebrow-line" }),
+                    " ",
+                    f("CONFIDENTIAL · PERSONAL HEALTH PASSPORT"),
+                  ],
+                }),
+                i.jsx("h3", { children: f("My Health Vitals") }),
+                i.jsx("p", {
+                  children: `${f("Physiological observations for")} ${ue.name} (${pid}) ${f("only")}.`,
+                }),
+              ],
+            }),
+            i.jsxs("button", {
+              type: "button",
+              className: "button button-secondary",
+              onClick: () => setShowLogVitalModal(true),
+              children: [
+                i.jsx(hl, { size: 16 }),
+                " ",
+                f("Log new reading"),
+              ],
+            }),
+          ],
+        }),
+        logVitalFeedback &&
+          i.jsxs("div", {
+            className: "toast",
+            style: { position: "static", marginBottom: "8px" },
+            children: [i.jsx(yo, { size: 16 }), " ", logVitalFeedback],
+          }),
+        i.jsxs("div", {
+          className: "patient-vitals-grid",
+          children: [
+            i.jsxs("div", {
+              className: "patient-vital-card",
+              children: [
+                i.jsxs("div", {
+                  className: "patient-vital-card-top",
+                  children: [
+                    i.jsx("span", {
+                      className: "patient-vital-icon-box heart",
+                      children: i.jsx(kr, { size: 20 }),
+                    }),
+                    i.jsx("span", {
+                      className: "patient-vital-badge",
+                      children: f(patientVitals.heart_rate?.status || "Normal"),
+                    }),
+                  ],
+                }),
+                i.jsx("p", {
+                  className: "patient-vital-label",
+                  children: f("Heart Rate"),
+                }),
+                i.jsxs("div", {
+                  className: "patient-vital-value-row",
+                  children: [
+                    i.jsx("span", {
+                      className: "patient-vital-value",
+                      children: patientVitals.heart_rate?.value ?? "—",
+                    }),
+                    i.jsx("span", {
+                      className: "patient-vital-unit",
+                      children: "bpm",
+                    }),
+                  ],
+                }),
+                i.jsxs("span", {
+                  className: "patient-vital-timestamp",
+                  children: [
+                    i.jsx(ac, { size: 12 }),
+                    " ",
+                    f("Recorded today"),
+                  ],
+                }),
+              ],
+            }),
+            i.jsxs("div", {
+              className: "patient-vital-card",
+              children: [
+                i.jsxs("div", {
+                  className: "patient-vital-card-top",
+                  children: [
+                    i.jsx("span", {
+                      className: "patient-vital-icon-box oxygen",
+                      children: i.jsx(Nf, { size: 20 }),
+                    }),
+                    i.jsx("span", {
+                      className: "patient-vital-badge",
+                      children: f(patientVitals.oxygen_saturation?.status || "Optimal"),
+                    }),
+                  ],
+                }),
+                i.jsx("p", {
+                  className: "patient-vital-label",
+                  children: f("Blood Oxygen (SpO₂)"),
+                }),
+                i.jsxs("div", {
+                  className: "patient-vital-value-row",
+                  children: [
+                    i.jsx("span", {
+                      className: "patient-vital-value",
+                      children: patientVitals.oxygen_saturation?.value ?? "—",
+                    }),
+                    i.jsx("span", {
+                      className: "patient-vital-unit",
+                      children: "%",
+                    }),
+                  ],
+                }),
+                i.jsxs("span", {
+                  className: "patient-vital-timestamp",
+                  children: [
+                    i.jsx(ac, { size: 12 }),
+                    " ",
+                    f("Recorded today"),
+                  ],
+                }),
+              ],
+            }),
+            i.jsxs("div", {
+              className: "patient-vital-card",
+              children: [
+                i.jsxs("div", {
+                  className: "patient-vital-card-top",
+                  children: [
+                    i.jsx("span", {
+                      className: "patient-vital-icon-box temp",
+                      children: i.jsx(ThIcon, { size: 20 }),
+                    }),
+                    i.jsx("span", {
+                      className: "patient-vital-badge",
+                      children: f(patientVitals.body_temperature?.status || "Normal"),
+                    }),
+                  ],
+                }),
+                i.jsx("p", {
+                  className: "patient-vital-label",
+                  children: f("Body Temperature"),
+                }),
+                i.jsxs("div", {
+                  className: "patient-vital-value-row",
+                  children: [
+                    i.jsx("span", {
+                      className: "patient-vital-value",
+                      children: patientVitals.body_temperature?.value ?? "—",
+                    }),
+                    i.jsx("span", {
+                      className: "patient-vital-unit",
+                      children: "°C",
+                    }),
+                  ],
+                }),
+                i.jsxs("span", {
+                  className: "patient-vital-timestamp",
+                  children: [
+                    i.jsx(ac, { size: 12 }),
+                    " ",
+                    f("Recorded today"),
+                  ],
+                }),
+              ],
+            }),
+            i.jsxs("div", {
+              className: "patient-vital-card",
+              children: [
+                i.jsxs("div", {
+                  className: "patient-vital-card-top",
+                  children: [
+                    i.jsx("span", {
+                      className: "patient-vital-icon-box bp",
+                      children: i.jsx(Pi, { size: 20 }),
+                    }),
+                    i.jsx("span", {
+                      className: "patient-vital-badge",
+                      children: f(patientVitals.blood_pressure?.status || "Optimal"),
+                    }),
+                  ],
+                }),
+                i.jsx("p", {
+                  className: "patient-vital-label",
+                  children: f("Blood Pressure"),
+                }),
+                i.jsxs("div", {
+                  className: "patient-vital-value-row",
+                  children: [
+                    i.jsx("span", {
+                      className: "patient-vital-value",
+                      children: `${patientVitals.blood_pressure?.systolic ?? 120} / ${patientVitals.blood_pressure?.diastolic ?? 80}`,
+                    }),
+                    i.jsx("span", {
+                      className: "patient-vital-unit",
+                      children: "mmHg",
+                    }),
+                  ],
+                }),
+                i.jsxs("span", {
+                  className: "patient-vital-timestamp",
+                  children: [
+                    i.jsx(ac, { size: 12 }),
+                    " ",
+                    f("Recorded today"),
+                  ],
+                }),
+              ],
+            }),
+          ],
+        }),
+        showFull &&
+          i.jsxs("div", {
+            className: "patient-vitals-privacy-banner",
+            children: [
+              i.jsx(Lt, { size: 18, style: { color: "#0d9488", flexShrink: 0 } }),
+              i.jsxs("div", {
+                children: [
+                  i.jsx("strong", { children: f("Personal patient record isolation:") }),
+                  " ",
+                  f("You are viewing only your own physiological readings. Clinical cross-patient census and triage are restricted to authorized doctors."),
+                ],
+              }),
+            ],
+          }),
+      ],
+    });
+  }
   function $t() {
     try {
-      (localStorage.removeItem("pc-auth-user"),
-        localStorage.removeItem("pc-role"));
+      localStorage.removeItem("pc-auth-user");
+      localStorage.removeItem("pc-role");
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.removeItem("pc-lang-selected");
+      }
     } catch {}
     (Y(""), at(""), N("Overview"), B(false), It(false));
+    if (typeof window !== "undefined") {
+      window.location.hash = "#/";
+    }
   }
   function zi(c) {
     if ((c.preventDefault(), !Nn.trim() || !Yn)) return;
@@ -2424,8 +2854,39 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
                                 }),
                               ],
                             }),
+                            i.jsxs("button", {
+                              className: "stat-card",
+                              onClick: () => N("My Health"),
+                              children: [
+                                i.jsx("span", {
+                                  className: "stat-icon peach",
+                                  children: i.jsx(kr, { size: 19 }),
+                                }),
+                                i.jsx("span", {
+                                  className: "stat-label",
+                                  children: f("My Vitals"),
+                                }),
+                                i.jsxs("strong", {
+                                  className: "stat-value",
+                                  children: [
+                                    patientVitals.heart_rate?.value ?? 74,
+                                    " bpm · ",
+                                    f(patientVitals.heart_rate?.status || "Normal"),
+                                  ],
+                                }),
+                                i.jsxs("span", {
+                                  className: "stat-foot",
+                                  children: [
+                                    f("View & log observations"),
+                                    " ",
+                                    i.jsx(Tt, { size: 14 }),
+                                  ],
+                                }),
+                              ],
+                            }),
                           ],
                         }),
+                        renderPatientVitals(false),
                         i.jsxs("div", {
                           className: "content-grid",
                           children: [
@@ -2600,7 +3061,13 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
                         }),
                       ],
                     }),
-                  k === "RPM Monitor" && i.jsx(RpmDashboard, {}),
+                  k === "My Vitals" &&
+                    i.jsxs("section", {
+                      className: "page-content",
+                      children: [
+                        renderPatientVitals(true),
+                      ],
+                    }),
                   k === "My Health" &&
                     i.jsxs("section", {
                       className: "page-content",
@@ -2738,6 +3205,7 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
                             }),
                           ],
                         }),
+                        renderPatientVitals(true),
                         i.jsxs("div", {
                           className: "panel",
                           children: [
@@ -4079,6 +4547,120 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
                   }),
                 }),
               b && i.jsx(gc, { file: b, onClose: () => ae(null), tr: f }),
+              showLogVitalModal &&
+                i.jsx("div", {
+                  className: "modal-backdrop",
+                  onMouseDown: (e) => {
+                    if (e.target === e.currentTarget) setShowLogVitalModal(false);
+                  },
+                  children: i.jsxs("form", {
+                    className: "modal",
+                    style: { maxWidth: "420px" },
+                    onSubmit: handleSavePatientVital,
+                    children: [
+                      i.jsxs("div", {
+                        className: "modal-header",
+                        style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" },
+                        children: [
+                          i.jsx("h3", { style: { margin: 0 }, children: f("Log Personal Vital") }),
+                          i.jsx("button", {
+                            type: "button",
+                            style: { background: "none", border: "none", cursor: "pointer", color: "#64748b" },
+                            onClick: () => setShowLogVitalModal(false),
+                            children: i.jsx(dc, { size: 18 }),
+                          }),
+                        ],
+                      }),
+                      i.jsx("p", {
+                        style: { fontSize: "13px", color: "#64748b", margin: "0 0 16px 0" },
+                        children: `${f("Recording reading for")} ${ue.name} (${O || h || "PC-SYNTH01"}).`,
+                      }),
+                      i.jsxs("label", {
+                        style: { display: "block", marginBottom: "12px", fontSize: "13px", fontWeight: "600", color: "#334155" },
+                        children: [
+                          f("Vital Type"),
+                          i.jsxs("select", {
+                            value: logVitalType,
+                            onChange: (e) => setLogVitalType(e.target.value),
+                            style: { display: "block", width: "100%", marginTop: "4px", padding: "8px 10px", borderRadius: "6px", border: "1px solid #cbd5e1" },
+                            children: [
+                              i.jsx("option", { value: "heart_rate", children: "Heart Rate (bpm)" }),
+                              i.jsx("option", { value: "oxygen_saturation", children: "Blood Oxygen / SpO₂ (%)" }),
+                              i.jsx("option", { value: "body_temperature", children: "Body Temperature (°C)" }),
+                              i.jsx("option", { value: "blood_pressure", children: "Blood Pressure (mmHg)" }),
+                            ],
+                          }),
+                        ],
+                      }),
+                      logVitalType === "blood_pressure"
+                        ? i.jsxs("div", {
+                            style: { display: "flex", gap: "10px", marginBottom: "16px" },
+                            children: [
+                              i.jsxs("label", {
+                                style: { flex: 1, fontSize: "13px", fontWeight: "600", color: "#334155" },
+                                children: [
+                                  f("Systolic"),
+                                  i.jsx("input", {
+                                    type: "number",
+                                    value: logVitalVal,
+                                    onChange: (e) => setLogVitalVal(e.target.value),
+                                    min: "40",
+                                    max: "300",
+                                    required: true,
+                                    style: { display: "block", width: "100%", marginTop: "4px", padding: "8px 10px", borderRadius: "6px", border: "1px solid #cbd5e1" },
+                                  }),
+                                ],
+                              }),
+                              i.jsxs("label", {
+                                style: { flex: 1, fontSize: "13px", fontWeight: "600", color: "#334155" },
+                                children: [
+                                  f("Diastolic"),
+                                  i.jsx("input", {
+                                    type: "number",
+                                    value: logVitalVal2,
+                                    onChange: (e) => setLogVitalVal2(e.target.value),
+                                    min: "20",
+                                    max: "200",
+                                    required: true,
+                                    style: { display: "block", width: "100%", marginTop: "4px", padding: "8px 10px", borderRadius: "6px", border: "1px solid #cbd5e1" },
+                                  }),
+                                ],
+                              }),
+                            ],
+                          })
+                        : i.jsxs("label", {
+                            style: { display: "block", marginBottom: "16px", fontSize: "13px", fontWeight: "600", color: "#334155" },
+                            children: [
+                              f("Value"),
+                              i.jsx("input", {
+                                type: "number",
+                                step: "any",
+                                value: logVitalVal,
+                                onChange: (e) => setLogVitalVal(e.target.value),
+                                required: true,
+                                style: { display: "block", width: "100%", marginTop: "4px", padding: "8px 10px", borderRadius: "6px", border: "1px solid #cbd5e1" },
+                              }),
+                            ],
+                          }),
+                      i.jsxs("div", {
+                        style: { display: "flex", justifyContent: "flex-end", gap: "10px" },
+                        children: [
+                          i.jsx("button", {
+                            type: "button",
+                            className: "button button-secondary",
+                            onClick: () => setShowLogVitalModal(false),
+                            children: f("Cancel"),
+                          }),
+                          i.jsx("button", {
+                            type: "submit",
+                            className: "button button-primary",
+                            children: f("Save Reading"),
+                          }),
+                        ],
+                      }),
+                    ],
+                  }),
+                }),
               kt &&
                 i.jsx("div", {
                   className: "modal-backdrop",
@@ -4563,6 +5145,15 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
             ],
           })
         : i.jsx(jf, {
+            onBack: () => {
+              try {
+                localStorage.removeItem("pc-role");
+              } catch {}
+              at("");
+              if (typeof window !== "undefined") {
+                window.location.hash = "#/";
+              }
+            },
             onLogin: (c, C) => {
               (U(c), Y(c));
               const F = wt("pc-data-" + c, null),
@@ -4590,7 +5181,8 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
                     fe([])),
                 localStorage.setItem("pc-auth-user", JSON.stringify(c)),
                 localStorage.setItem("pc-patient-id", JSON.stringify(c)),
-                localStorage.setItem("pc-patient-name", JSON.stringify(C)));
+                localStorage.setItem("pc-patient-name", JSON.stringify(C)),
+                typeof window !== "undefined" && (window.location.hash = "#/patient"));
             },
           })
       : i.jsx(Af, {
@@ -4601,7 +5193,8 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
           },
           onPatient: () => {
             (at("patient"),
-              localStorage.setItem("pc-role", JSON.stringify("patient")));
+              localStorage.setItem("pc-role", JSON.stringify("patient")),
+              typeof window !== "undefined" && (window.location.hash = "#/patient"));
           },
         });
 }

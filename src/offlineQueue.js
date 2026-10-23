@@ -572,6 +572,16 @@ export async function clearDeliveredEvents(customDb = null) {
 }
 
 /**
+ * Clear all queued events from storage (recovery / cleanup)
+ */
+export async function clearAllQueueEvents(customDb = null) {
+  const items = await listQueuedEvents({ limit: 1000 }, customDb)
+  for (const item of items) {
+    await removeQueuedEvent(item.event_id, customDb)
+  }
+}
+
+/**
  * Get statistical summary of queue counts
  */
 /**

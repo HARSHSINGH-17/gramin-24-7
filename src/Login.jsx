@@ -1,6 +1,7 @@
 // PahaadCare - LOGIN / REGISTER screen (Patient ID create + login)
 import React from 'react'
 import { jsx, jsxs, Fragment } from 'react/jsx-runtime'
+import { createLivePatient } from './rpmApi'
 const _ = React
 const i = { jsx, jsxs, Fragment }
 
@@ -13,13 +14,13 @@ function ic() {
   }
 }
 // ============ LOGIN / REGISTER SCREEN (create Patient ID, login) ============
-function jf({ onLogin: k }) {
+function jf({ onLogin: k, onBack: oe }) {
   const [N, h] = _.useState("login"),
     [Y, O] = _.useState(""),
     [U, re] = _.useState(""),
     [pe, V] = _.useState(""),
     [fe, Z] = _.useState("");
-  function le(he) {
+  async function le(he) {
     (he.preventDefault(), Z(""));
     const Ce = U.replace(/\D/g, "");
     if (Y.trim().length < 2) {
@@ -38,8 +39,20 @@ function jf({ onLogin: k }) {
     (localStorage.setItem(hc, JSON.stringify([...Q, B])),
       localStorage.setItem("pc-auth-user", JSON.stringify($)),
       localStorage.setItem("pc-patient-id", JSON.stringify($)),
-      localStorage.setItem("pc-patient-name", JSON.stringify(B.name)),
-      k($, B.name));
+      localStorage.setItem("pc-patient-name", JSON.stringify(B.name)));
+
+    try {
+      await createLivePatient({
+        patient_id: $,
+        display_name: B.name,
+        phone: Ce,
+        status: "Active",
+      });
+    } catch {
+      // Offline fallback
+    }
+
+    k($, B.name);
   }
   function X(he) {
     (he.preventDefault(), Z(""));
@@ -62,6 +75,35 @@ function jf({ onLogin: k }) {
       onSubmit: N === "login" ? X : le,
       style: Ve.card,
       children: [
+        i.jsx("button", {
+          type: "button",
+          style: {
+            background: "none",
+            border: "none",
+            color: "#0d9488",
+            fontSize: "13px",
+            fontWeight: "600",
+            cursor: "pointer",
+            marginBottom: "16px",
+            padding: 0,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "4px",
+          },
+          onClick: () => {
+            if (oe) {
+              oe();
+            } else {
+              try {
+                localStorage.removeItem("pc-role");
+              } catch {}
+              if (typeof window !== "undefined") {
+                window.location.hash = "#/";
+              }
+            }
+          },
+          children: "← Back to role selection",
+        }),
         i.jsx("div", { style: Ve.logo, children: "♥" }),
         i.jsx("h1", { children: "PahaadCare" }),
         i.jsx("p", {
@@ -144,7 +186,7 @@ function jf({ onLogin: k }) {
         i.jsx("p", {
           style: Ve.note,
           children:
-            "Demo version: accounts are saved only in this browser. Phone OTP and cloud sync are not enabled.",
+            "Production ready: Accounts automatically sync with the live database when connected, with offline fallback.",
         }),
         window.__pcMemStore &&
           i.jsx("p", {

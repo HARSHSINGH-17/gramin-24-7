@@ -55,6 +55,8 @@ class EventRepository(Protocol):
 class SQLiteRepository:
     """Durable local repository for the synthetic RPM prototype."""
 
+    backend_name = "sqlite"
+
     def __init__(
         self,
         database_path: str | Path,
@@ -257,6 +259,34 @@ class SQLiteRepository:
                     "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
                     (3, self._iso(datetime.now(timezone.utc))),
                 )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id TEXT PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL CHECK (role IN ('clinician', 'administrator', 'patient', 'family')),
+                    full_name TEXT NOT NULL,
+                    patient_id TEXT,
+                    phone TEXT,
+                    created_at TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1
+                )
+                """
+            )
+            for col_def in (
+                "age INTEGER",
+                "gender TEXT",
+                "phone TEXT",
+                "village TEXT",
+                "district TEXT",
+            ):
+                try:
+                    connection.execute(f"ALTER TABLE patients ADD COLUMN {col_def}")
+                except sqlite3.OperationalError:
+                    pass
+
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
@@ -268,6 +298,11 @@ class SQLiteRepository:
             yield connection
         finally:
             connection.close()
+
+    def ping(self) -> bool:
+        with self._connection() as connection:
+            connection.execute("SELECT 1")
+            return True
 
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
@@ -521,6 +556,380 @@ class SQLiteRepository:
             next_cursor = base64.urlsafe_b64encode(last_id.encode("utf-8")).decode("ascii")
 
         return (items, next_cursor)
+
+    def create_user(
+        self,
+        user_id: str,
+        username: str,
+        email: str,
+        password_hash: str,
+        role: str,
+        full_name: str,
+        patient_id: str | None = None,
+        phone: str | None = None,
+    ) -> dict:
+        now_str = self._iso(datetime.now(timezone.utc))
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO users (
+                    user_id, username, email, password_hash, role,
+                    full_name, patient_id, phone, created_at, is_active
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                """,
+                (user_id, username.lower(), email.lower(), password_hash, role, full_name, patient_id, phone, now_str),
+            )
+            return {
+                "user_id": user_id,
+                "username": username.lower(),
+                "email": email.lower(),
+                "role": role,
+                "full_name": full_name,
+                "patient_id": patient_id,
+                "phone": phone,
+                "created_at": now_str,
+                "is_active": True,
+            }
+
+    def get_user_by_username_or_email(self, identifier: str) -> dict | None:
+        clean = identifier.strip().lower()
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM users WHERE (username = ? OR email = ?) AND is_active = 1",
+                (clean, clean),
+            ).fetchone()
+            if not row:
+                return None
+            return dict(row)
+
+    def get_user_by_id(self, user_id: str) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM users WHERE user_id = ? AND is_active = 1",
+                (user_id,),
+            ).fetchone()
+            if not row:
+                return None
+            return dict(row)
+
+    def create_patient(
+        self,
+        patient_id: str,
+        display_name: str,
+        age: int | None = None,
+        gender: str | None = None,
+        phone: str | None = None,
+        village: str | None = None,
+        district: str | None = None,
+        status: str = "active",
+        is_simulated: int = 0,
+    ) -> dict:
+        now_str = self._iso(datetime.now(timezone.utc))
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO patients (
+                    patient_id, display_name, age, gender, phone,
+                    village, district, status, created_at, is_simulated
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(patient_id) DO UPDATE SET
+                    display_name = excluded.display_name,
+                    age = coalesce(excluded.age, patients.age),
+                    gender = coalesce(excluded.gender, patients.gender),
+                    phone = coalesce(excluded.phone, patients.phone),
+                    village = coalesce(excluded.village, patients.village),
+                    district = coalesce(excluded.district, patients.district),
+                    status = excluded.status
+                """,
+                (patient_id, display_name, age, gender, phone, village, district, status, now_str, is_simulated),
+            )
+            return {
+                "patient_id": patient_id,
+                "display_name": display_name,
+                "age": age,
+                "gender": gender,
+                "phone": phone,
+                "village": village,
+                "district": district,
+                "status": status,
+                "created_at": now_str,
+                "is_simulated": bool(is_simulated),
+            }
+
+    def get_patient(self, patient_id: str) -> dict | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM patients WHERE patient_id = ?",
+                (patient_id,),
+            ).fetchone()
+            if not row:
+                return None
+            keys = row.keys()
+            return {
+                "patient_id": row["patient_id"],
+                "display_name": row["display_name"],
+                "age": row["age"] if "age" in keys else None,
+                "gender": row["gender"] if "gender" in keys else None,
+                "phone": row["phone"] if "phone" in keys else None,
+                "village": row["village"] if "village" in keys else None,
+                "district": row["district"] if "district" in keys else None,
+                "status": row["status"],
+                "created_at": row["created_at"],
+                "is_simulated": bool(row["is_simulated"]),
+            }
+
+    def get_latest_vitals_for_patient(self, patient_id: str) -> dict:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM measurements
+                WHERE patient_id = ?
+                ORDER BY measured_at DESC
+                """,
+                (patient_id,),
+            ).fetchall()
+
+            latest: dict[str, dict] = {}
+            for row in rows:
+                m_type = row["measurement_type"]
+                if m_type not in latest:
+                    latest[m_type] = {
+                        "event_id": row["event_id"],
+                        "measurement_type": m_type,
+                        "value": row["value"],
+                        "unit": row["unit"],
+                        "measured_at": row["measured_at"],
+                        "received_at": row["received_at"],
+                        "source": row["source"],
+                        "is_simulated": bool(row["is_simulated"]),
+                    }
+            return {
+                "patient_id": patient_id,
+                "vitals": latest,
+                "count": len(rows),
+            }
+
+    def get_monitor_overview(
+        self,
+        allowed_patient_ids: list[str] | None = None,
+    ) -> dict:
+        now = self._clock()
+        now_iso = self._iso(now)
+        stale_threshold_minutes = 15
+
+        with self._connection() as connection:
+            patient_conditions = []
+            patient_params = []
+            if allowed_patient_ids is not None:
+                if not allowed_patient_ids:
+                    return {
+                        "summary": {
+                            "total_patients": 0,
+                            "patients_requiring_review": 0,
+                            "active_alerts_count": 0,
+                            "active_alerts_by_severity": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+                            "patients_with_stale_measurements": 0,
+                            "patients_with_missing_measurements": 0,
+                            "pending_escalations_count": 0,
+                            "total_measurements_count": 0,
+                        },
+                        "patients": [],
+                        "alerts": [],
+                        "generated_at": now_iso,
+                    }
+                placeholders = ", ".join("?" for _ in allowed_patient_ids)
+                patient_conditions.append(f"patient_id IN ({placeholders})")
+                patient_params.extend(allowed_patient_ids)
+
+            where_sql = (" WHERE " + " AND ".join(patient_conditions)) if patient_conditions else ""
+            p_rows = connection.execute(
+                f"SELECT patient_id, display_name, status, created_at, is_simulated FROM patients{where_sql} ORDER BY patient_id ASC",
+                patient_params,
+            ).fetchall()
+
+            patients_list = []
+            patients_with_stale = set()
+            patients_with_missing = set()
+            patients_requiring_review = set()
+
+            vital_types = [
+                ("heart_rate", "bpm"),
+                ("oxygen_saturation", "%"),
+                ("body_temperature", "°C"),
+                ("systolic_blood_pressure", "mmHg"),
+                ("diastolic_blood_pressure", "mmHg"),
+            ]
+
+            alert_conditions = ["status IN ('open', 'acknowledged')"]
+            alert_params = []
+            if allowed_patient_ids is not None:
+                placeholders = ", ".join("?" for _ in allowed_patient_ids)
+                alert_conditions.append(f"patient_id IN ({placeholders})")
+                alert_params.extend(allowed_patient_ids)
+
+            alerts_where = " WHERE " + " AND ".join(alert_conditions)
+            alert_rows = connection.execute(
+                f"SELECT * FROM alerts{alerts_where} ORDER BY created_at DESC",
+                alert_params,
+            ).fetchall()
+
+            active_alerts = [self._alert_from_row(r) for r in alert_rows]
+            alerts_by_patient: dict[str, list] = {}
+            for a in active_alerts:
+                alerts_by_patient.setdefault(a.patient_id, []).append(a)
+
+            esc_conditions = ["status IN ('pending', 'escalated')"]
+            esc_params = []
+            if allowed_patient_ids is not None:
+                placeholders = ", ".join("?" for _ in allowed_patient_ids)
+                esc_conditions.append(f"patient_id IN ({placeholders})")
+                esc_params.extend(allowed_patient_ids)
+            esc_where = " WHERE " + " AND ".join(esc_conditions)
+            esc_row = connection.execute(
+                f"SELECT COUNT(*) as count FROM alert_escalations{esc_where}",
+                esc_params,
+            ).fetchone()
+            pending_esc_count = esc_row["count"] if esc_row else 0
+
+            meas_conditions = []
+            meas_params = []
+            if allowed_patient_ids is not None:
+                placeholders = ", ".join("?" for _ in allowed_patient_ids)
+                meas_conditions.append(f"patient_id IN ({placeholders})")
+                meas_params.extend(allowed_patient_ids)
+            meas_where = (" WHERE " + " AND ".join(meas_conditions)) if meas_conditions else ""
+            meas_row = connection.execute(
+                f"SELECT COUNT(*) as count FROM measurements{meas_where}",
+                meas_params,
+            ).fetchone()
+            total_measurements = meas_row["count"] if meas_row else 0
+
+            sev_rank = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+
+            for p_row in p_rows:
+                pid = p_row["patient_id"]
+                m_rows = connection.execute(
+                    "SELECT * FROM measurements WHERE patient_id = ? ORDER BY measured_at DESC",
+                    (pid,),
+                ).fetchall()
+
+                latest_by_type = {}
+                for m_row in m_rows:
+                    m_type = m_row["measurement_type"]
+                    if m_type not in latest_by_type:
+                        latest_by_type[m_type] = m_row
+
+                patient_vitals = {}
+                has_stale_vital = False
+                has_missing_vital = False
+                most_recent_measured_at = None
+
+                for v_key, default_unit in vital_types:
+                    m = latest_by_type.get(v_key)
+                    if m is None:
+                        has_missing_vital = True
+                        patient_vitals[v_key] = {
+                            "value": None,
+                            "unit": default_unit,
+                            "measured_at": None,
+                            "freshness": "missing",
+                        }
+                    else:
+                        m_at_str = m["measured_at"]
+                        if most_recent_measured_at is None or m_at_str > most_recent_measured_at:
+                            most_recent_measured_at = m_at_str
+
+                        try:
+                            m_dt = datetime.fromisoformat(m_at_str.replace("Z", "+00:00"))
+                            age_mins = (now - m_dt).total_seconds() / 60.0
+                            is_stale = age_mins > stale_threshold_minutes
+                        except Exception:
+                            is_stale = False
+
+                        freshness = "stale" if is_stale else "recent"
+                        if is_stale:
+                            has_stale_vital = True
+
+                        patient_vitals[v_key] = {
+                            "event_id": m["event_id"],
+                            "value": m["value"],
+                            "unit": m["unit"],
+                            "measured_at": m["measured_at"],
+                            "received_at": m["received_at"],
+                            "source": m["source"],
+                            "freshness": freshness,
+                        }
+
+                if has_stale_vital:
+                    patients_with_stale.add(pid)
+                if has_missing_vital:
+                    patients_with_missing.add(pid)
+
+                p_alerts = alerts_by_patient.get(pid, [])
+                highest_sev = "none"
+                highest_val = 0
+                for a in p_alerts:
+                    s_str = a.severity.value if hasattr(a.severity, "value") else str(a.severity)
+                    val = sev_rank.get(s_str, 0)
+                    if val > highest_val:
+                        highest_val = val
+                        highest_sev = s_str
+
+                if highest_sev == "critical":
+                    monitoring_status = "critical_attention"
+                    patients_requiring_review.add(pid)
+                elif highest_sev in ("high", "medium") or has_stale_vital or has_missing_vital:
+                    monitoring_status = "needs_review"
+                    patients_requiring_review.add(pid)
+                else:
+                    monitoring_status = "normal"
+
+                if has_missing_vital and not latest_by_type:
+                    patient_freshness = "missing"
+                elif has_stale_vital:
+                    patient_freshness = "stale"
+                else:
+                    patient_freshness = "recent"
+
+                patients_list.append({
+                    "patient_id": pid,
+                    "display_name": p_row["display_name"],
+                    "status": p_row["status"],
+                    "is_simulated": bool(p_row["is_simulated"]),
+                    "latest_measurements": patient_vitals,
+                    "latest_measurement_at": most_recent_measured_at,
+                    "freshness_status": patient_freshness,
+                    "active_alerts_count": len(p_alerts),
+                    "highest_severity": highest_sev,
+                    "monitoring_status": monitoring_status,
+                    "has_stale_vitals": has_stale_vital,
+                    "has_missing_vitals": has_missing_vital,
+                })
+
+            sev_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+            for a in active_alerts:
+                s = a.severity.value if hasattr(a.severity, "value") else str(a.severity)
+                if s in sev_counts:
+                    sev_counts[s] += 1
+
+            summary = {
+                "total_patients": len(p_rows),
+                "patients_requiring_review": len(patients_requiring_review),
+                "active_alerts_count": len(active_alerts),
+                "active_alerts_by_severity": sev_counts,
+                "patients_with_stale_measurements": len(patients_with_stale),
+                "patients_with_missing_measurements": len(patients_with_missing),
+                "pending_escalations_count": pending_esc_count,
+                "total_measurements_count": total_measurements,
+            }
+
+            return {
+                "summary": summary,
+                "patients": patients_list,
+                "alerts": [a.model_dump(mode="json", exclude_none=True) for a in active_alerts],
+                "generated_at": now_iso,
+            }
+
 
     def list_measurements(
         self,

@@ -23,6 +23,7 @@ import {
   markEventFailed,
   resetSendingToPending,
   getQueueSummary,
+  clearAllQueueEvents,
 } from './offlineQueue.js'
 import {
   syncBatchEvents,
@@ -175,6 +176,20 @@ class SyncManager {
   }
 
   /**
+   * Clear all offline queue events (recovery / user flush)
+   */
+  async clearAllQueue() {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer)
+      this.retryTimer = null
+    }
+    await clearAllQueueEvents()
+    this.consecutiveFailures = 0
+    this.lastSyncError = null
+    await this._notify()
+  }
+
+  /**
    * Calculate next backoff interval with jitter
    */
   _calculateBackoff() {
@@ -219,6 +234,7 @@ class SyncManager {
     await this._notify()
 
     let batch = []
+    let sendingEvents = []
     try {
       const user = getStoredUser()
       const currentUser = user?.username || null
@@ -232,7 +248,7 @@ class SyncManager {
       }
 
       // 2. Mark batch as 'sending' in durable storage
-      const sendingEvents = await markEventsSending(batch.map((e) => e.event_id))
+      sendingEvents = await markEventsSending(batch.map((e) => e.event_id))
       await this._notify()
 
       // 3. Dispatch batch to backend sync endpoint
@@ -299,8 +315,16 @@ class SyncManager {
         await resetSendingToPending()
       } else if (error instanceof AccessDeniedError) {
         this.lastSyncError = error.message
-        // Revert sending events back to pending
-        await resetSendingToPending()
+        // Mark events as failed to avoid infinite retry loops
+        for (const ev of sendingEvents) {
+          await markEventFailed(ev.event_id, error.message)
+        }
+      } else if (error?.status === 422 || error?.code === 'validation_error' || (error?.message && error.message.includes('invalid fields'))) {
+        // Permanent payload rejection: mark sending events as failed so queue is not blocked
+        this.lastSyncError = error.message || 'Request contains invalid fields.'
+        for (const ev of sendingEvents) {
+          await markEventFailed(ev.event_id, error.message || 'validation_error')
+        }
       } else {
         // Transient network error or 5xx server failure
         this.consecutiveFailures++

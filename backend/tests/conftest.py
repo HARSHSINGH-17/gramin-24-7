@@ -15,6 +15,7 @@ os.environ["PAHAADCARE_AUTH_SECRET"] = "test-only-secret-that-is-long-enough-123
 os.environ["PAHAADCARE_DEMO_USERNAME"] = "test-clinician"
 os.environ["PAHAADCARE_DEMO_PASSWORD_HASH"] = hash_password("test-password-1234")
 os.environ["PAHAADCARE_DEMO_PATIENT_IDS"] = "PC-SYNTH01,PC-DEMO01"
+os.environ["PAHAADCARE_PROVISIONING_SECRET"] = "test-provisioning-secret-123456"
 atexit.register(shutil.rmtree, _TEST_DATABASE_DIRECTORY, ignore_errors=True)
 
 

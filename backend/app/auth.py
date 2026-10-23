@@ -31,6 +31,7 @@ class SecuritySettings:
     demo_patient_ids: tuple[str, ...]
     cors_origins: tuple[str, ...]
     max_body_bytes: int
+    demo_patient_username: str | None = None
 
     @classmethod
     def from_environment(cls) -> "SecuritySettings":
@@ -99,6 +100,8 @@ class SecuritySettings:
         if token_minutes < 1 or token_minutes > 1440:
             raise ConfigurationError("PAHAADCARE_TOKEN_MINUTES must be bounded between 1 and 1440 minutes")
 
+        demo_patient_username = os.getenv("PAHAADCARE_DEMO_PATIENT_USERNAME", "patient1") if demo_enabled else None
+
         return cls(
             environment=environment,
             auth_secret=auth_secret,
@@ -111,6 +114,7 @@ class SecuritySettings:
             demo_patient_ids=patient_ids,
             cors_origins=cors_origins,
             max_body_bytes=int(os.getenv("PAHAADCARE_MAX_BODY_BYTES", "65536")),
+            demo_patient_username=demo_patient_username,
         )
 
 
@@ -173,16 +177,14 @@ def unauthorized(detail: str = "Authentication required") -> HTTPException:
     )
 
 
-def current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+def decode_token(
+    raw_token: str,
     settings: SecuritySettings,
     is_revoked: Callable[[str], bool] | None = None,
 ) -> dict[str, object]:
-    if credentials is None or credentials.scheme.lower() != "bearer":
-        raise unauthorized()
     try:
         claims = jwt.decode(
-            credentials.credentials,
+            raw_token,
             settings.auth_secret,
             algorithms=["HS256"],
             issuer=settings.issuer,
@@ -210,6 +212,16 @@ def current_user(
     }
 
 
+def current_user(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+    settings: SecuritySettings,
+    is_revoked: Callable[[str], bool] | None = None,
+) -> dict[str, object]:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise unauthorized()
+    return decode_token(credentials.credentials, settings, is_revoked)
+
+
 def require_user(
     settings: SecuritySettings | Callable[[], SecuritySettings],
     is_revoked: Callable[[str], bool] | None = None,
@@ -224,16 +236,18 @@ def require_user(
 
 
 def require_role(
-    role: str,
+    role: str | tuple[str, ...] | set[str] | list[str],
     settings: SecuritySettings | Callable[[], SecuritySettings],
     is_revoked: Callable[[str], bool] | None = None,
 ):
     user_dependency = require_user(settings, is_revoked)
+    allowed_roles = {role} if isinstance(role, str) else set(role)
+    allowed_roles.add("administrator")
 
     def dependency(
-        user: Annotated[dict[str, str], Depends(user_dependency)],
+        user: Annotated[dict[str, object], Depends(user_dependency)],
     ) -> dict[str, object]:
-        if user["role"] not in {role, "administrator"}:
+        if str(user.get("role", "")) not in allowed_roles:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
         return user
 
@@ -243,7 +257,7 @@ def require_role(
 def has_patient_access(user: dict[str, object], patient_id: str) -> bool:
     if not isinstance(user, dict) or not patient_id:
         return False
-    role = user.get("role")
+    role = str(user.get("role", "")).strip().lower()
     patient_ids = user.get("patient_ids")
     if role == "administrator":
         # Administrator has broad clinical oversight scope unless explicitly restricted
@@ -252,6 +266,17 @@ def has_patient_access(user: dict[str, object], patient_id: str) -> bool:
         if "*" in patient_ids or len(patient_ids) == 0 or patient_id in patient_ids:
             return True
         return False
+
     if not isinstance(patient_ids, list):
         return False
+
+    # Wildcard access is strictly reserved for clinicians and administrators
+    if "*" in patient_ids:
+        if role == "clinician":
+            return True
+        # Patients and family members can NEVER receive wildcard patient access
+        return False
+
+    # For patients and family members, patient_id must explicitly be in their authorized patient_ids
     return patient_id in patient_ids
+

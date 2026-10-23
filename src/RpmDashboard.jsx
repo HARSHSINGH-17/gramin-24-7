@@ -11,21 +11,31 @@ import {
   Wifi,
   WifiOff,
   X,
+  Users,
+  Search,
+  ShieldAlert,
+  BarChart3,
+  PieChart,
+  TrendingUp,
 } from 'lucide-react'
 import {
   DEMO_STALE_THRESHOLD_MINUTES,
   SessionExpiredError,
   AccessDeniedError,
   getStoredToken,
+  getStoredUser,
   clearStoredToken,
   loginClinician,
   logoutClinician,
+  fetchMonitorOverview,
+  fetchDoctorCensus,
   fetchPatients,
   fetchPatientMeasurements,
   fetchAlerts,
   fetchAlertEscalation,
   acknowledgeAlert,
   resolveAlert,
+  toValidUuid,
 } from './rpmApi'
 import { syncManager } from './syncManager'
 import { enqueueMeasurementEvent } from './offlineQueue'
@@ -45,6 +55,18 @@ export function formatTime(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 'Invalid timestamp'
   return date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+export function formatAge(value, now = new Date()) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const diffMinutes = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 60000))
+  if (diffMinutes === 0) return '<1m ago'
+  if (diffMinutes < 60) return `${diffMinutes}m ago`
+  const hours = Math.floor(diffMinutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
 }
 
 export function formatUnit(unit) {
@@ -74,7 +96,7 @@ export function readingStatus(reading, now = new Date()) {
   if (!reading || reading.value === null || reading.value === undefined) {
     return { label: 'Missing', tone: 'missing' }
   }
-  if (reading.outcome === 'stale') {
+  if (reading.outcome === 'stale' || reading.freshness === 'stale') {
     return { label: 'Stale', tone: 'stale' }
   }
   if (reading.measured_at) {
@@ -86,7 +108,7 @@ export function readingStatus(reading, now = new Date()) {
       }
     }
   }
-  return { label: 'Received', tone: 'received' }
+  return { label: 'Current', tone: 'received' }
 }
 
 export function displayReading(reading, defaultUnit = '') {
@@ -114,10 +136,11 @@ export function StatusBadge({ status }) {
 
 export function PatientTable({
   patients,
-  measurementsByPatient,
-  alerts,
+  measurementsByPatient = {},
+  alerts = [],
   onSelect,
   selectedPatientId,
+  onNavigateToPatient,
 }) {
   const now = new Date()
   return (
@@ -133,8 +156,11 @@ export function PatientTable({
                 <small>{unit}</small>
               </th>
             ))}
-            <th scope="col">Last received</th>
-            <th scope="col">Alerts</th>
+            <th scope="col">Latest Reading</th>
+            <th scope="col">Data Quality</th>
+            <th scope="col">Active Alerts</th>
+            <th scope="col">Monitoring Status</th>
+            <th scope="col">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -149,6 +175,36 @@ export function PatientTable({
             const allMeasurements = patientData.all || []
             const mostRecent = allMeasurements[0]
             const isSelected = selectedPatientId === patient.patient_id
+
+            const highestSev = patient.highest_severity || (
+              patientAlerts.some((a) => a.severity === 'critical')
+                ? 'critical'
+                : patientAlerts.some((a) => a.severity === 'high')
+                ? 'high'
+                : patientAlerts.some((a) => a.severity === 'medium')
+                ? 'medium'
+                : patientAlerts.some((a) => a.severity === 'low')
+                ? 'low'
+                : 'none'
+            )
+
+            const monitoringStatus = patient.monitoring_status || (
+              highestSev === 'critical'
+                ? 'critical_attention'
+                : highestSev === 'high' || highestSev === 'medium' || patient.has_stale_vitals || patient.has_missing_vitals
+                ? 'needs_review'
+                : 'normal'
+            )
+
+            const freshnessStatus = patient.freshness_status || (
+              patient.has_stale_vitals
+                ? 'stale'
+                : patient.has_missing_vitals && !allMeasurements.length
+                ? 'missing'
+                : 'recent'
+            )
+
+            const latestTimestamp = patient.latest_measurement_at || mostRecent?.received_at || mostRecent?.measured_at
 
             return (
               <tr key={patient.patient_id} className={isSelected ? 'rpm-row-selected' : ''}>
@@ -168,14 +224,27 @@ export function PatientTable({
                   </button>
                 </th>
                 {READING_TYPES.map(([type, , defaultUnit]) => {
-                  const reading = latestByType[type]
+                  const reading = patient.latest_measurements?.[type] || latestByType[type]
                   const shown = displayReading(reading, defaultUnit)
+                  const status = readingStatus(reading, now)
+                  const ageText = formatAge(reading?.measured_at, now)
                   return (
                     <td key={type}>
-                      <div className="rpm-reading-cell">
-                        <strong>{shown.value}</strong>
-                        {shown.unit && <small>{shown.unit}</small>}
-                        <StatusBadge status={readingStatus(reading, now)} />
+                      <div className="rpm-vital-cell-box">
+                        <div className="rpm-vital-value-row">
+                          {shown.value === 'Missing' ? (
+                            <span className="rpm-vital-missing">Missing</span>
+                          ) : (
+                            <>
+                              <strong>{shown.value}</strong>
+                              {shown.unit && <small>{shown.unit}</small>}
+                            </>
+                          )}
+                        </div>
+                        <div className="rpm-vital-meta-row">
+                          <StatusBadge status={status} />
+                          {ageText && <span>{ageText}</span>}
+                        </div>
                       </div>
                     </td>
                   )
@@ -183,7 +252,20 @@ export function PatientTable({
                 <td>
                   <span className="rpm-time">
                     <Clock3 size={14} />
-                    {formatTime(mostRecent?.received_at || mostRecent?.measured_at)}
+                    {formatTime(latestTimestamp)}
+                  </span>
+                </td>
+                <td>
+                  <span
+                    className={`doc-badge doc-badge-${
+                      freshnessStatus === 'recent'
+                        ? 'green'
+                        : freshnessStatus === 'stale'
+                        ? 'amber'
+                        : 'rose'
+                    }`}
+                  >
+                    {freshnessStatus.toUpperCase()}
                   </span>
                 </td>
                 <td>
@@ -191,10 +273,52 @@ export function PatientTable({
                     <span className="rpm-alert-count">
                       <AlertTriangle size={14} />
                       {patientAlerts.length} active
+                      {highestSev !== 'none' && (
+                        <span className={`rpm-sev-pill ${highestSev.slice(0, 4)}`} style={{ marginLeft: '4px' }}>
+                          {highestSev}
+                        </span>
+                      )}
                     </span>
                   ) : (
                     <span className="rpm-clear">No active alerts</span>
                   )}
+                </td>
+                <td>
+                  <span
+                    className={`doc-badge doc-badge-${
+                      monitoringStatus === 'critical_attention'
+                        ? 'rose'
+                        : monitoringStatus === 'needs_review'
+                        ? 'amber'
+                        : 'green'
+                    }`}
+                  >
+                    {monitoringStatus === 'critical_attention'
+                      ? 'Critical Attention'
+                      : monitoringStatus === 'needs_review'
+                      ? 'Needs Review'
+                      : 'Normal'}
+                  </span>
+                </td>
+                <td>
+                  <div className="rpm-action-cell">
+                    <button
+                      type="button"
+                      className="rpm-open-patient-btn"
+                      onClick={() => {
+                        const targetPath = `/doctor/patients/${patient.patient_id}`
+                        if (onNavigateToPatient) {
+                          onNavigateToPatient(targetPath)
+                        } else if (typeof window !== 'undefined') {
+                          window.location.hash = `#${targetPath}`
+                        }
+                      }}
+                      title={`Open individual RPM page for ${patient.patient_id}`}
+                    >
+                      <span>Open RPM</span>
+                      <span>→</span>
+                    </button>
+                  </div>
                 </td>
               </tr>
             )
@@ -214,6 +338,7 @@ export function PatientDetail({
   onClose,
   onPerformAlertAction,
   actionKey,
+  onNavigateToPatient,
 }) {
   if (!patient) return null
   const patientAlerts = alerts.filter(
@@ -240,6 +365,23 @@ export function PatientDetail({
         <span>recorded measurements</span>
         <strong>{patientAlerts.length}</strong>
         <span>active alerts</span>
+      </div>
+      <div style={{ margin: '12px 0 16px' }}>
+        <button
+          type="button"
+          className="button button-secondary"
+          style={{ width: '100%', fontSize: '12px', justifyContent: 'center' }}
+          onClick={() => {
+            const target = `/doctor/patients/${patient.patient_id}`
+            if (onNavigateToPatient) {
+              onNavigateToPatient(target)
+            } else if (typeof window !== 'undefined') {
+              window.location.hash = `#${target}`
+            }
+          }}
+        >
+          Open Individual RPM Dashboard →
+        </button>
       </div>
       {patientAlerts.length > 0 && (
         <section className="rpm-detail-section">
@@ -316,12 +458,13 @@ export function PatientDetail({
   )
 }
 
-export default function RpmDashboard() {
+export default function RpmDashboard({ onNavigate } = {}) {
   const [accessToken, setAccessToken] = React.useState(() => getStoredToken())
   const [username, setUsername] = React.useState('')
   const [password, setPassword] = React.useState('')
   const [authBusy, setAuthBusy] = React.useState(false)
 
+  const [overviewData, setOverviewData] = React.useState(null)
   const [patients, setPatients] = React.useState([])
   const [alerts, setAlerts] = React.useState([])
   const [measurementsByPatient, setMeasurementsByPatient] = React.useState({})
@@ -329,6 +472,13 @@ export default function RpmDashboard() {
   const [selectedPatientMeasurements, setSelectedPatientMeasurements] = React.useState([])
   const [selectedPatientLoading, setSelectedPatientLoading] = React.useState(false)
   const [selectedPatientError, setSelectedPatientError] = React.useState('')
+
+  // Search, filter, and sort controls
+  const [searchQuery, setSearchQuery] = React.useState('')
+  const [statusFilter, setStatusFilter] = React.useState('all')
+  const [severityFilter, setSeverityFilter] = React.useState('all')
+  const [freshnessFilter, setFreshnessFilter] = React.useState('all')
+  const [sortBy, setSortBy] = React.useState('urgency')
 
   const [loading, setLoading] = React.useState(true)
   const [refreshing, setRefreshing] = React.useState(false)
@@ -339,6 +489,35 @@ export default function RpmDashboard() {
   const [showNoteInputForAlert, setShowNoteInputForAlert] = React.useState(null)
   const [alertEscalations, setAlertEscalations] = React.useState({})
   const [expandedAlerts, setExpandedAlerts] = React.useState({})
+  // Phase 2: Route synchronization (#/doctor, #/doctor/patients, #/doctor/patients/:id, #/doctor/alerts)
+  const [currentSubRoute, setCurrentSubRoute] = React.useState(() => {
+    const hash = typeof window !== 'undefined' ? window.location.hash : ''
+    return hash.replace(/^#\/?/, '').trim() || 'doctor'
+  })
+
+  React.useEffect(() => {
+    const handleHashSync = () => {
+      const hash = typeof window !== 'undefined' ? window.location.hash : ''
+      const clean = hash.replace(/^#\/?/, '').trim() || 'doctor'
+      setCurrentSubRoute(clean)
+
+      const patientMatch = clean.match(/^doctor\/patients\/([a-zA-Z0-9_-]+)/)
+      if (patientMatch && patientMatch[1]) {
+        setSelectedPatientId(patientMatch[1])
+      }
+    }
+    handleHashSync()
+    window.addEventListener('hashchange', handleHashSync)
+    return () => window.removeEventListener('hashchange', handleHashSync)
+  }, [])
+
+  const handleSelectPatient = React.useCallback((patientId) => {
+    setSelectedPatientId(patientId)
+  }, [])
+
+  const handleClosePatient = React.useCallback(() => {
+    setSelectedPatientId(null)
+  }, [])
 
   // Milestone 3: Offline Synchronization & Queue state
   const [syncState, setSyncState] = React.useState({
@@ -376,6 +555,7 @@ export default function RpmDashboard() {
   const handleUnauthorized = React.useCallback(() => {
     clearStoredToken()
     setAccessToken('')
+    setOverviewData(null)
     setPatients([])
     setAlerts([])
     setMeasurementsByPatient({})
@@ -401,51 +581,80 @@ export default function RpmDashboard() {
       }
 
       try {
-        // 1. Fetch Patients & Alerts in parallel
-        const [patientsRes, alertsRes] = await Promise.all([
-          fetchPatients({ signal, onUnauthorized: handleUnauthorized }),
-          fetchAlerts({ signal, onUnauthorized: handleUnauthorized }),
-        ])
+        let loadedPatients = []
+        let loadedAlerts = []
+        let loadedMeasurementMap = {}
+        let overviewSuccess = false
 
-        const patientList = patientsRes?.items || []
-        const alertList = alertsRes?.items || []
+        // 1. Primary: fetch consolidated overview
+        try {
+          const overviewRes = await fetchMonitorOverview({ signal, onUnauthorized: handleUnauthorized })
+          if (overviewRes?.summary && overviewRes?.patients) {
+            setOverviewData(overviewRes)
+            loadedPatients = overviewRes.patients
+            loadedAlerts = overviewRes.alerts || []
 
-        // 2. Fetch latest measurements for visible census patients
-        const measurementMap = {}
-        await Promise.all(
-          patientList.map(async (patient) => {
-            try {
-              const res = await fetchPatientMeasurements(patient.patient_id, {
-                limit: 25,
-                signal,
-                onUnauthorized: handleUnauthorized,
-              })
-              const items = res?.items || []
-              const latestByType = {}
-              for (const m of items) {
-                if (!latestByType[m.measurement_type]) {
-                  latestByType[m.measurement_type] = m
-                }
+            for (const p of overviewRes.patients) {
+              const vitals = p.latest_measurements || {}
+              const allItems = Object.values(vitals).filter((v) => v.value !== null && v.value !== undefined)
+              loadedMeasurementMap[p.patient_id] = {
+                all: allItems,
+                latest: vitals,
               }
-              measurementMap[patient.patient_id] = {
-                all: items,
-                latest: latestByType,
-              }
-            } catch (pErr) {
-              if (pErr.name === 'AbortError') throw pErr
-              measurementMap[patient.patient_id] = { all: [], latest: {} }
             }
-          })
-        )
+            overviewSuccess = true
+          }
+        } catch (oErr) {
+          if (oErr.name === 'AbortError') throw oErr
+          if (oErr instanceof SessionExpiredError) throw oErr
+          // Fall back to discrete endpoints
+        }
 
-        setPatients(patientList)
-        setAlerts(alertList)
-        setMeasurementsByPatient(measurementMap)
+        // 2. Discrete endpoints fallback if consolidated overview failed
+        if (!overviewSuccess) {
+          const [patientsRes, alertsRes] = await Promise.all([
+            fetchPatients({ signal, onUnauthorized: handleUnauthorized }),
+            fetchAlerts({ signal, onUnauthorized: handleUnauthorized }),
+          ])
 
-        // Fetch escalation status and mock notifications for alerts
+          loadedPatients = patientsRes?.items || []
+          loadedAlerts = alertsRes?.items || []
+
+          await Promise.all(
+            loadedPatients.map(async (patient) => {
+              try {
+                const res = await fetchPatientMeasurements(patient.patient_id, {
+                  limit: 25,
+                  signal,
+                  onUnauthorized: handleUnauthorized,
+                })
+                const items = res?.items || []
+                const latestByType = {}
+                for (const m of items) {
+                  if (!latestByType[m.measurement_type]) {
+                    latestByType[m.measurement_type] = m
+                  }
+                }
+                loadedMeasurementMap[patient.patient_id] = {
+                  all: items,
+                  latest: latestByType,
+                }
+              } catch (pErr) {
+                if (pErr.name === 'AbortError') throw pErr
+                loadedMeasurementMap[patient.patient_id] = { all: [], latest: {} }
+              }
+            })
+          )
+        }
+
+        setPatients(loadedPatients)
+        setAlerts(loadedAlerts)
+        setMeasurementsByPatient(loadedMeasurementMap)
+
+        // 3. Fetch escalations for alerts
         const escMap = {}
         await Promise.all(
-          alertList.map(async (alert) => {
+          loadedAlerts.map(async (alert) => {
             try {
               const esc = await fetchAlertEscalation(alert.alert_id, {
                 signal,
@@ -595,7 +804,7 @@ export default function RpmDashboard() {
         event_id:
           typeof crypto !== 'undefined' && crypto.randomUUID
             ? crypto.randomUUID()
-            : 'b' + Math.random().toString(36).slice(2, 10) + '-0000-0000-0000-000000000001',
+            : toValidUuid('b' + Math.random().toString(16).slice(2, 10) + '-0000-4000-8000-000000000001'),
         patient_id: simPatientId,
         measurement_type: simVitalType,
         value: parseFloat(simValue),
@@ -619,6 +828,11 @@ export default function RpmDashboard() {
     setError('')
     try {
       const res = await loginClinician(username, password)
+      const user = getStoredUser()
+      if (user && user.role === 'patient') {
+        clearStoredToken()
+        throw new Error('Access forbidden: Clinician role required. Patient accounts cannot access the doctor workspace.')
+      }
       setPassword('')
       setAccessToken(res.access_token)
       setLastRefresh(null)
@@ -645,6 +859,9 @@ export default function RpmDashboard() {
       setSelectedPatientMeasurements([])
       setError('')
       setLastRefresh(null)
+      if (typeof window !== 'undefined') {
+        window.location.hash = '#/doctor'
+      }
     }
   }
 
@@ -696,24 +913,167 @@ export default function RpmDashboard() {
       a.category === 'ingestion_failure'
   )
 
-  // Count total measurements returned across census
+  // Total measurements count
   const totalMeasurementsCount = Object.values(measurementsByPatient).reduce(
     (acc, cur) => acc + (cur?.all?.length || 0),
     0
   )
 
-  // Count stale or missing measurements across census
+  // Distinct stale and missing counts
   const now = new Date()
   let staleCount = 0
   let missingCount = 0
   for (const patient of patients) {
-    const patientData = measurementsByPatient[patient.patient_id]?.latest || {}
+    const patientData = measurementsByPatient[patient.patient_id]?.latest || patient.latest_measurements || {}
     for (const [type] of READING_TYPES) {
       const reading = patientData[type]
       const status = readingStatus(reading, now)
       if (status.tone === 'stale') staleCount++
       if (status.tone === 'missing') missingCount++
     }
+  }
+
+  // Phase 4: Consolidated Summary Metrics derived from backend or computed locally
+  const summaryMetrics = React.useMemo(() => {
+    if (overviewData?.summary) {
+      return overviewData.summary
+    }
+
+    const totalPatients = patients.length
+    const sevCounts = { critical: 0, high: 0, medium: 0, low: 0 }
+    let distinctStale = 0
+    let distinctMissing = 0
+    let reviewCount = 0
+
+    const active = alerts.filter((a) => a.status === 'open' || a.status === 'acknowledged')
+    for (const a of active) {
+      if (sevCounts[a.severity] !== undefined) sevCounts[a.severity]++
+    }
+
+    for (const p of patients) {
+      const pData = measurementsByPatient[p.patient_id]?.latest || p.latest_measurements || {}
+      const pAlerts = active.filter((a) => a.patient_id === p.patient_id)
+      let hasStale = false
+      let hasMissing = false
+
+      for (const [type] of READING_TYPES) {
+        const r = pData[type]
+        const st = readingStatus(r, now)
+        if (st.tone === 'stale') hasStale = true
+        if (st.tone === 'missing') hasMissing = true
+      }
+
+      if (hasStale) distinctStale++
+      if (hasMissing) distinctMissing++
+      if (hasStale || hasMissing || pAlerts.length > 0) reviewCount++
+    }
+
+    const pendingEsc = Object.values(alertEscalations).filter(
+      (e) => e.status === 'pending' || e.status === 'escalated'
+    ).length
+
+    return {
+      total_patients: totalPatients,
+      patients_requiring_review: reviewCount,
+      active_alerts_count: active.length,
+      active_alerts_by_severity: sevCounts,
+      patients_with_stale_measurements: distinctStale,
+      patients_with_missing_measurements: distinctMissing,
+      pending_escalations_count: pendingEsc,
+      total_measurements_count: totalMeasurementsCount,
+    }
+  }, [overviewData, patients, alerts, measurementsByPatient, alertEscalations, totalMeasurementsCount])
+
+  // Phase 4: Filtered and Sorted Patient Census
+  const filteredPatients = React.useMemo(() => {
+    return patients
+      .filter((p) => {
+        const q = searchQuery.trim().toLowerCase()
+        if (q) {
+          const matchId = p.patient_id.toLowerCase().includes(q)
+          const matchName = p.display_name && p.display_name.toLowerCase().includes(q)
+          if (!matchId && !matchName) return false
+        }
+
+        if (statusFilter !== 'all') {
+          if (statusFilter === 'critical' && p.monitoring_status !== 'critical_attention') return false
+          if (statusFilter === 'needs_review' && p.monitoring_status !== 'needs_review') return false
+          if (statusFilter === 'normal' && p.monitoring_status !== 'normal') return false
+        }
+
+        if (severityFilter !== 'all') {
+          if (severityFilter === 'none' && p.highest_severity && p.highest_severity !== 'none') return false
+          if (severityFilter !== 'none' && p.highest_severity !== severityFilter) return false
+        }
+
+        if (freshnessFilter !== 'all') {
+          if (freshnessFilter === 'stale' && !p.has_stale_vitals && p.freshness_status !== 'stale') return false
+          if (freshnessFilter === 'missing' && !p.has_missing_vitals && p.freshness_status !== 'missing') return false
+          if (freshnessFilter === 'recent' && (p.has_stale_vitals || p.has_missing_vitals || (p.freshness_status && p.freshness_status !== 'recent'))) return false
+        }
+
+        return true
+      })
+      .sort((a, b) => {
+        if (sortBy === 'patient_id_asc') return a.patient_id.localeCompare(b.patient_id)
+        if (sortBy === 'patient_id_desc') return b.patient_id.localeCompare(a.patient_id)
+        if (sortBy === 'newest') {
+          const ta = a.latest_measurement_at ? new Date(a.latest_measurement_at).getTime() : 0
+          const tb = b.latest_measurement_at ? new Date(b.latest_measurement_at).getTime() : 0
+          return tb - ta
+        }
+        if (sortBy === 'oldest') {
+          const ta = a.latest_measurement_at ? new Date(a.latest_measurement_at).getTime() : 0
+          const tb = b.latest_measurement_at ? new Date(b.latest_measurement_at).getTime() : 0
+          return ta - tb
+        }
+        if (sortBy === 'severity') {
+          const rank = { critical: 4, high: 3, medium: 2, low: 1, none: 0 }
+          return (rank[b.highest_severity] || 0) - (rank[a.highest_severity] || 0)
+        }
+        const uRank = { critical_attention: 3, needs_review: 2, normal: 1 }
+        const diff = (uRank[b.monitoring_status] || 1) - (uRank[a.monitoring_status] || 1)
+        if (diff !== 0) return diff
+        return a.patient_id.localeCompare(b.patient_id)
+      })
+  }, [patients, searchQuery, statusFilter, severityFilter, freshnessFilter, sortBy])
+
+  const isFiltered =
+    searchQuery !== '' ||
+    statusFilter !== 'all' ||
+    severityFilter !== 'all' ||
+    freshnessFilter !== 'all' ||
+    sortBy !== 'urgency'
+
+  // Proportions for Phase 6 Visualizations
+  const alertCounts = summaryMetrics.active_alerts_by_severity || { critical: 0, high: 0, medium: 0, low: 0 }
+  const totalActive = summaryMetrics.active_alerts_count || 0
+  const alertPercents = {
+    crit: totalActive ? Math.round((alertCounts.critical / totalActive) * 100) : 0,
+    high: totalActive ? Math.round((alertCounts.high / totalActive) * 100) : 0,
+    med: totalActive ? Math.round((alertCounts.medium / totalActive) * 100) : 0,
+    low: totalActive ? Math.round((alertCounts.low / totalActive) * 100) : 0,
+  }
+
+  const totalPatients = summaryMetrics.total_patients || 0
+  const staleP = summaryMetrics.patients_with_stale_measurements || 0
+  const missingP = summaryMetrics.patients_with_missing_measurements || 0
+  const recentP = Math.max(0, totalPatients - staleP - missingP)
+  const freshnessCounts = { recent: recentP, stale: staleP, missing: missingP }
+  const freshnessPercents = {
+    recent: totalPatients ? Math.round((recentP / totalPatients) * 100) : 0,
+    stale: totalPatients ? Math.round((staleP / totalPatients) * 100) : 0,
+    missing: totalPatients ? Math.round((missingP / totalPatients) * 100) : 0,
+  }
+
+  const criticalP = patients.filter((p) => p.monitoring_status === 'critical_attention').length
+  const reviewP = patients.filter((p) => p.monitoring_status === 'needs_review').length
+  const normalP = patients.filter((p) => p.monitoring_status === 'normal' || (!p.monitoring_status && p.highest_severity === 'none')).length
+  const statusCounts = { normal: normalP, review: reviewP, critical: criticalP }
+  const statusPercents = {
+    normal: totalPatients ? Math.round((normalP / totalPatients) * 100) : 0,
+    review: totalPatients ? Math.round((reviewP / totalPatients) * 100) : 0,
+    critical: totalPatients ? Math.round((criticalP / totalPatients) * 100) : 0,
   }
 
   const hasData = patients.length > 0 || alerts.length > 0
@@ -745,6 +1105,61 @@ export default function RpmDashboard() {
           )}
         </div>
       </div>
+
+      {accessToken && (
+        <div
+          className="rpm-route-nav"
+          role="navigation"
+          aria-label="Clinician Workspace Navigation"
+          style={{
+            display: 'flex',
+            gap: '8px',
+            margin: '0 0 16px 0',
+            borderBottom: '1px solid #e2e8f0',
+            paddingBottom: '12px',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+          }}
+        >
+          <button
+            type="button"
+            className={`button ${currentSubRoute === 'doctor' || currentSubRoute === '/doctor' ? 'button-primary' : 'button-secondary'}`}
+            onClick={() => {
+              window.location.hash = '#/doctor'
+            }}
+          >
+            RPM Monitor
+          </button>
+          <button
+            type="button"
+            className={`button ${currentSubRoute.includes('doctor/patients') ? 'button-primary' : 'button-secondary'}`}
+            onClick={() => {
+              window.location.hash = '#/doctor/patients'
+            }}
+          >
+            Patient Directory ({patients.length})
+          </button>
+          <button
+            type="button"
+            className={`button ${currentSubRoute.includes('doctor/alerts') ? 'button-primary' : 'button-secondary'}`}
+            onClick={() => {
+              window.location.hash = '#/doctor/alerts'
+            }}
+          >
+            Alert Queue ({activeAlerts.length})
+          </button>
+          <div style={{ flex: 1 }} />
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={() => {
+              window.location.hash = '#/patient'
+            }}
+          >
+            Patient Portal
+          </button>
+        </div>
+      )}
 
       {accessToken && (
         <div className="rpm-sync-bar" role="region" aria-label="Offline event queue status">
@@ -861,9 +1276,31 @@ export default function RpmDashboard() {
       {syncState.lastSyncError && accessToken && (
         <div className="rpm-error-banner" role="alert" style={{ marginBottom: '14px' }}>
           <WifiOff size={18} />
-          <div>
+          <div style={{ flex: 1 }}>
             <strong>Offline Queue Synchronization Paused</strong>
-            <span>{syncState.lastSyncError}</span>
+            <p style={{ margin: '4px 0 8px 0', fontSize: '0.9rem' }}>{syncState.lastSyncError}</p>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="button button-secondary"
+                style={{ padding: '4px 10px', fontSize: '0.8rem' }}
+                onClick={() => {
+                  syncManager.syncNow({ force: true }).catch(() => {})
+                }}
+              >
+                Retry Synchronization
+              </button>
+              <button
+                type="button"
+                className="button button-outline"
+                style={{ padding: '4px 10px', fontSize: '0.8rem', color: '#b91c1c', borderColor: '#fca5a5' }}
+                onClick={async () => {
+                  await syncManager.clearAllQueue()
+                }}
+              >
+                Clear Offline Queue
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -907,6 +1344,28 @@ export default function RpmDashboard() {
           <p className="rpm-login-note">
             Synthetic demo only. Configure credentials through backend environment variables.
           </p>
+          <div style={{ marginTop: '12px', textAlign: 'center' }}>
+            <button
+              type="button"
+              className="rpm-link-btn"
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  window.location.hash = '#/'
+                }
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#0d9488',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                padding: '4px 8px',
+              }}
+            >
+              ← Back to role selection
+            </button>
+          </div>
         </form>
       )}
 
@@ -950,31 +1409,176 @@ export default function RpmDashboard() {
             <span>Auto-refresh: 12s</span>
           </div>
 
-          <div className="rpm-metrics-grid">
-            <Metric
-              icon={HeartPulse}
-              label="Synthetic patients"
-              value={patients.length}
-              tone="green"
-            />
-            <Metric
-              icon={Activity}
-              label="Returned measurements"
-              value={totalMeasurementsCount}
-              tone="blue"
-            />
-            <Metric
-              icon={AlertTriangle}
-              label="Active demo alerts"
-              value={activeAlerts.length}
-              tone="amber"
-            />
-            <Metric
-              icon={WifiOff}
-              label="Missing / stale"
-              value={`${missingCount} / ${staleCount}`}
-              tone="rose"
-            />
+          {/* Phase 2: Consolidated Clinical Metrics Row */}
+          <div className="rpm-overview-metrics-grid" role="region" aria-label="Integrated Clinical Metrics">
+            <div className="rpm-overview-metric-card">
+              <div className="rpm-overview-metric-header">
+                <span className="rpm-overview-metric-title">Total Authorized</span>
+                <div className="rpm-overview-metric-icon rpm-icon-blue">
+                  <Users size={16} />
+                </div>
+              </div>
+              <div className="rpm-overview-metric-value">{summaryMetrics.total_patients}</div>
+              <div className="rpm-overview-metric-subtext">Clinician assigned scope</div>
+            </div>
+
+            <div className="rpm-overview-metric-card">
+              <div className="rpm-overview-metric-header">
+                <span className="rpm-overview-metric-title">Patients Requiring Review</span>
+                <div className="rpm-overview-metric-icon rpm-icon-rose">
+                  <AlertTriangle size={16} />
+                </div>
+              </div>
+              <div className="rpm-overview-metric-value">{summaryMetrics.patients_requiring_review}</div>
+              <div className="rpm-overview-metric-subtext">Active alerts or telemetry gaps</div>
+            </div>
+
+            <div className="rpm-overview-metric-card">
+              <div className="rpm-overview-metric-header">
+                <span className="rpm-overview-metric-title">Active Demo Alerts</span>
+                <div className="rpm-overview-metric-icon rpm-icon-amber">
+                  <ShieldAlert size={16} />
+                </div>
+              </div>
+              <div className="rpm-overview-metric-value">{summaryMetrics.active_alerts_count}</div>
+              <div className="rpm-severity-pills-row">
+                <span className="rpm-sev-pill crit">Crit: {summaryMetrics.active_alerts_by_severity?.critical || 0}</span>
+                <span className="rpm-sev-pill high">High: {summaryMetrics.active_alerts_by_severity?.high || 0}</span>
+                <span className="rpm-sev-pill med">Med: {summaryMetrics.active_alerts_by_severity?.medium || 0}</span>
+                <span className="rpm-sev-pill low">Low: {summaryMetrics.active_alerts_by_severity?.low || 0}</span>
+              </div>
+            </div>
+
+            <div className="rpm-overview-metric-card">
+              <div className="rpm-overview-metric-header">
+                <span className="rpm-overview-metric-title">Patients with Stale Data</span>
+                <div className="rpm-overview-metric-icon rpm-icon-amber">
+                  <Clock3 size={16} />
+                </div>
+              </div>
+              <div className="rpm-overview-metric-value">{summaryMetrics.patients_with_stale_measurements}</div>
+              <div className="rpm-overview-metric-subtext">Distinct patients (&gt; 15m delay)</div>
+            </div>
+
+            <div className="rpm-overview-metric-card">
+              <div className="rpm-overview-metric-header">
+                <span className="rpm-overview-metric-title">Patients with Missing Data</span>
+                <div className="rpm-overview-metric-icon rpm-icon-rose">
+                  <WifiOff size={16} />
+                </div>
+              </div>
+              <div className="rpm-overview-metric-value">{summaryMetrics.patients_with_missing_measurements}</div>
+              <div className="rpm-overview-metric-subtext">Distinct patients (missing vitals)</div>
+            </div>
+
+            <div className="rpm-overview-metric-card">
+              <div className="rpm-overview-metric-header">
+                <span className="rpm-overview-metric-title">Pending Escalations</span>
+                <div className="rpm-overview-metric-icon rpm-icon-purple">
+                  <TrendingUp size={16} />
+                </div>
+              </div>
+              <div className="rpm-overview-metric-value">{summaryMetrics.pending_escalations_count}</div>
+              <div className="rpm-overview-metric-subtext">CHW & supervisor notifications</div>
+            </div>
+
+            <div className="rpm-overview-metric-card">
+              <div className="rpm-overview-metric-header">
+                <span className="rpm-overview-metric-title">Data Synchronization</span>
+                <div className="rpm-overview-metric-icon rpm-icon-emerald">
+                  <RefreshCw size={16} />
+                </div>
+              </div>
+              <div className="rpm-overview-metric-value" style={{ fontSize: '18px' }}>
+                {syncState.isOnline ? 'Online' : 'Offline'}
+              </div>
+              <div className="rpm-overview-metric-subtext">
+                Last refresh: {lastRefresh ? formatTime(lastRefresh) : 'Initial sync'}
+              </div>
+            </div>
+          </div>
+
+          {/* Phase 6: Clinical Visualizations Grid */}
+          <div className="rpm-charts-grid" role="region" aria-label="Clinical Visualizations">
+            <div className="rpm-chart-card">
+              <div className="rpm-chart-title">
+                <BarChart3 size={15} style={{ color: '#be123c' }} />
+                <span>Active Alerts by Severity</span>
+              </div>
+              <p className="rpm-chart-desc">
+                {summaryMetrics.active_alerts_count} active alert{summaryMetrics.active_alerts_count === 1 ? '' : 's'} across authorized patients
+              </p>
+              {summaryMetrics.active_alerts_count > 0 ? (
+                <>
+                  <div className="rpm-segmented-bar" aria-label="Severity proportions">
+                    {alertPercents.crit > 0 && <div className="rpm-segment rose" style={{ width: `${alertPercents.crit}%` }} title={`Critical: ${alertCounts.critical}`} />}
+                    {alertPercents.high > 0 && <div className="rpm-segment amber" style={{ width: `${alertPercents.high}%` }} title={`High: ${alertCounts.high}`} />}
+                    {alertPercents.med > 0 && <div className="rpm-segment sky" style={{ width: `${alertPercents.med}%` }} title={`Medium: ${alertCounts.medium}`} />}
+                    {alertPercents.low > 0 && <div className="rpm-segment emerald" style={{ width: `${alertPercents.low}%` }} title={`Low: ${alertCounts.low}`} />}
+                  </div>
+                  <div className="rpm-chart-legend">
+                    <span className="rpm-legend-item"><span className="rpm-legend-dot" style={{ background: '#f43f5e' }} /> Critical ({alertCounts.critical})</span>
+                    <span className="rpm-legend-item"><span className="rpm-legend-dot" style={{ background: '#f59e0b' }} /> High ({alertCounts.high})</span>
+                    <span className="rpm-legend-item"><span className="rpm-legend-dot" style={{ background: '#0ea5e9' }} /> Medium ({alertCounts.medium})</span>
+                    <span className="rpm-legend-item"><span className="rpm-legend-dot" style={{ background: '#10b981' }} /> Low ({alertCounts.low})</span>
+                  </div>
+                </>
+              ) : (
+                <p className="rpm-empty-inline" style={{ fontSize: '12px', margin: 0 }}>All physiological vitals within normal demonstration bounds.</p>
+              )}
+            </div>
+
+            <div className="rpm-chart-card">
+              <div className="rpm-chart-title">
+                <PieChart size={15} style={{ color: '#0369a1' }} />
+                <span>Telemetry Freshness Distribution</span>
+              </div>
+              <p className="rpm-chart-desc">
+                Data-quality status across {summaryMetrics.total_patients} authorized patient{summaryMetrics.total_patients === 1 ? '' : 's'}
+              </p>
+              {summaryMetrics.total_patients > 0 ? (
+                <>
+                  <div className="rpm-segmented-bar" aria-label="Freshness proportions">
+                    {freshnessPercents.recent > 0 && <div className="rpm-segment emerald" style={{ width: `${freshnessPercents.recent}%` }} title={`Recent: ${freshnessCounts.recent}`} />}
+                    {freshnessPercents.stale > 0 && <div className="rpm-segment amber" style={{ width: `${freshnessPercents.stale}%` }} title={`Stale: ${freshnessCounts.stale}`} />}
+                    {freshnessPercents.missing > 0 && <div className="rpm-segment rose" style={{ width: `${freshnessPercents.missing}%` }} title={`Missing: ${freshnessCounts.missing}`} />}
+                  </div>
+                  <div className="rpm-chart-legend">
+                    <span className="rpm-legend-item"><span className="rpm-legend-dot" style={{ background: '#10b981' }} /> Recent ({freshnessCounts.recent})</span>
+                    <span className="rpm-legend-item"><span className="rpm-legend-dot" style={{ background: '#f59e0b' }} /> Stale ({freshnessCounts.stale})</span>
+                    <span className="rpm-legend-item"><span className="rpm-legend-dot" style={{ background: '#f43f5e' }} /> Missing ({freshnessCounts.missing})</span>
+                  </div>
+                </>
+              ) : (
+                <p className="rpm-empty-inline" style={{ fontSize: '12px', margin: 0 }}>No authorized patients in scope.</p>
+              )}
+            </div>
+
+            <div className="rpm-chart-card">
+              <div className="rpm-chart-title">
+                <Activity size={15} style={{ color: '#15803d' }} />
+                <span>Monitoring Status Distribution</span>
+              </div>
+              <p className="rpm-chart-desc">
+                Clinical triage distribution across authorized patients
+              </p>
+              {summaryMetrics.total_patients > 0 ? (
+                <>
+                  <div className="rpm-segmented-bar" aria-label="Monitoring status proportions">
+                    {statusPercents.normal > 0 && <div className="rpm-segment emerald" style={{ width: `${statusPercents.normal}%` }} title={`Normal: ${statusCounts.normal}`} />}
+                    {statusPercents.review > 0 && <div className="rpm-segment amber" style={{ width: `${statusPercents.review}%` }} title={`Needs Review: ${statusCounts.review}`} />}
+                    {statusPercents.critical > 0 && <div className="rpm-segment rose" style={{ width: `${statusPercents.critical}%` }} title={`Critical: ${statusCounts.critical}`} />}
+                  </div>
+                  <div className="rpm-chart-legend">
+                    <span className="rpm-legend-item"><span className="rpm-legend-dot" style={{ background: '#10b981' }} /> Normal ({statusCounts.normal})</span>
+                    <span className="rpm-legend-item"><span className="rpm-legend-dot" style={{ background: '#f59e0b' }} /> Needs Review ({statusCounts.review})</span>
+                    <span className="rpm-legend-item"><span className="rpm-legend-dot" style={{ background: '#f43f5e' }} /> Critical Attention ({statusCounts.critical})</span>
+                  </div>
+                </>
+              ) : (
+                <p className="rpm-empty-inline" style={{ fontSize: '12px', margin: 0 }}>No authorized patients in scope.</p>
+              )}
+            </div>
           </div>
 
           <div className="rpm-content-grid">
@@ -989,16 +1593,134 @@ export default function RpmDashboard() {
                     {patients.length} synthetic patient{patients.length === 1 ? '' : 's'}
                   </span>
                 </div>
-                {patients.length ? (
+
+                {/* Phase 4: Search, Filters, and Sorting Bar */}
+                <div className="rpm-table-controls-bar" role="search" aria-label="Filter patient census">
+                  <div className="rpm-search-input-wrap">
+                    <Search size={15} style={{ color: '#64748b' }} aria-hidden="true" />
+                    <input
+                      type="text"
+                      className="rpm-search-input"
+                      placeholder="Search authorized patients by ID or name..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      aria-label="Search patients by identifier or name"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '2px', color: '#64748b' }}
+                        onClick={() => setSearchQuery('')}
+                        aria-label="Clear search"
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="rpm-filter-group">
+                    <select
+                      className="rpm-control-select"
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      aria-label="Filter by monitoring status"
+                    >
+                      <option value="all">All Monitoring Statuses</option>
+                      <option value="critical">Critical Attention</option>
+                      <option value="needs_review">Needs Review</option>
+                      <option value="normal">Normal Monitoring</option>
+                    </select>
+
+                    <select
+                      className="rpm-control-select"
+                      value={severityFilter}
+                      onChange={(e) => setSeverityFilter(e.target.value)}
+                      aria-label="Filter by active alert severity"
+                    >
+                      <option value="all">All Severities</option>
+                      <option value="critical">Critical Severity</option>
+                      <option value="high">High Severity</option>
+                      <option value="medium">Medium Severity</option>
+                      <option value="low">Low Severity</option>
+                      <option value="none">No Active Alerts</option>
+                    </select>
+
+                    <select
+                      className="rpm-control-select"
+                      value={freshnessFilter}
+                      onChange={(e) => setFreshnessFilter(e.target.value)}
+                      aria-label="Filter by telemetry freshness"
+                    >
+                      <option value="all">All Telemetry Freshness</option>
+                      <option value="recent">All Vitals Current</option>
+                      <option value="stale">Has Stale Vitals</option>
+                      <option value="missing">Has Missing Vitals</option>
+                    </select>
+
+                    <select
+                      className="rpm-control-select"
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value)}
+                      aria-label="Sort patient census"
+                    >
+                      <option value="urgency">Sort: Urgency (Critical First)</option>
+                      <option value="patient_id_asc">Sort: Patient ID (A → Z)</option>
+                      <option value="patient_id_desc">Sort: Patient ID (Z → A)</option>
+                      <option value="newest">Sort: Latest Reading (Newest)</option>
+                      <option value="oldest">Sort: Latest Reading (Oldest)</option>
+                      <option value="severity">Sort: Alert Severity (Highest)</option>
+                    </select>
+
+                    {isFiltered && (
+                      <button
+                        type="button"
+                        className="rpm-clear-filters-btn"
+                        onClick={() => {
+                          setSearchQuery('')
+                          setStatusFilter('all')
+                          setSeverityFilter('all')
+                          setFreshnessFilter('all')
+                          setSortBy('urgency')
+                        }}
+                      >
+                        Clear Filters
+                      </button>
+                    )}
+                  </div>
+
+                  <span className="rpm-results-badge">
+                    Showing {filteredPatients.length} of {patients.length} patient{patients.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+
+                {filteredPatients.length ? (
                   <PatientTable
-                    patients={patients}
+                    patients={filteredPatients}
                     measurementsByPatient={measurementsByPatient}
                     alerts={alerts}
-                    onSelect={setSelectedPatientId}
+                    onSelect={handleSelectPatient}
                     selectedPatientId={selectedPatientId}
+                    onNavigateToPatient={onNavigate}
                   />
                 ) : (
-                  <p className="rpm-empty-inline">No synthetic patients were returned.</p>
+                  <div className="rpm-empty-state" style={{ padding: '30px 20px', border: 'none' }}>
+                    <p style={{ margin: '0 0 10px', color: '#64748b' }}>No authorized patients match the current search or filters.</p>
+                    {isFiltered && (
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={() => {
+                          setSearchQuery('')
+                          setStatusFilter('all')
+                          setSeverityFilter('all')
+                          setFreshnessFilter('all')
+                          setSortBy('urgency')
+                        }}
+                      >
+                        Reset All Filters
+                      </button>
+                    )}
+                  </div>
                 )}
               </section>
 
@@ -1127,15 +1849,34 @@ export default function RpmDashboard() {
                             )}
                           </div>
                           <span className="rpm-alert-id">{alert.alert_id.slice(0, 8)}</span>
-                          {action && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-end' }}>
                             <button
-                              className="button button-secondary rpm-alert-action"
-                              onClick={() => performAlertAction(alert)}
-                              disabled={actionKey === actionId}
+                              type="button"
+                              className="rpm-open-patient-btn"
+                              style={{ fontSize: '11px', padding: '3px 8px' }}
+                              onClick={() => {
+                                const target = `/doctor/patients/${alert.patient_id}`
+                                if (onNavigate) {
+                                  onNavigate(target)
+                                } else if (typeof window !== 'undefined') {
+                                  window.location.hash = `#${target}`
+                                }
+                              }}
+                              aria-label={`Open telemetry for patient ${alert.patient_id}`}
                             >
-                              {actionKey === actionId ? 'Saving...' : action}
+                              <span>View Patient</span>
+                              <span>→</span>
                             </button>
-                          )}
+                            {action && (
+                              <button
+                                className="button button-secondary rpm-alert-action"
+                                onClick={() => performAlertAction(alert)}
+                                disabled={actionKey === actionId}
+                              >
+                                {actionKey === actionId ? 'Saving...' : action}
+                              </button>
+                            )}
+                          </div>
                         </div>
                       )
                     })}
@@ -1207,9 +1948,10 @@ export default function RpmDashboard() {
         alerts={alerts}
         loading={selectedPatientLoading}
         error={selectedPatientError}
-        onClose={() => setSelectedPatientId(null)}
+        onClose={handleClosePatient}
         onPerformAlertAction={performAlertAction}
         actionKey={actionKey}
+        onNavigateToPatient={onNavigate}
       />
     </section>
   )

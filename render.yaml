@@ -1,0 +1,31 @@
+databases:
+  - name: pahaadcare-postgres
+    databaseName: pahaadcare
+    user: pahaadcare_user
+    plan: free
+
+services:
+  - type: web
+    name: pahaadcare-api
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: python -m uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PAHAADCARE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pahaadcare-postgres
+          property: connectionString
+      - key: PAHAADCARE_AUTH_SECRET
+        generateValue: true
+      - key: PAHAADCARE_TOKEN_MINUTES
+        value: "1440"
+      - key: PAHAADCARE_DEMO_ENABLED
+        value: "false"
+      - key: PAHAADCARE_CORS_ORIGINS
+        value: "https://pahaadcare.vercel.app,https://pahaadcare.netlify.app"
+      - key: ESCALATION_WORKER_ENABLED
+        value: "true"
+      - key: ESCALATION_POLL_INTERVAL_SECONDS
+        value: "15.0"
