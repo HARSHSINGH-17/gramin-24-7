@@ -75,13 +75,23 @@ def evaluate_demo_threshold(
         boundary = maximum
 
     created_at = event.received_at or datetime.now(timezone.utc)
+    severity = AlertSeverity.MEDIUM
+    if event.measurement_type == MeasurementType.HEART_RATE and (event.value > 125 or event.value < 40):
+        severity = AlertSeverity.CRITICAL
+    elif event.measurement_type == MeasurementType.OXYGEN_SATURATION and event.value < 90:
+        severity = AlertSeverity.HIGH
+    elif event.measurement_type == MeasurementType.BODY_TEMPERATURE and event.value > 39:
+        severity = AlertSeverity.HIGH
+    elif event.measurement_type == MeasurementType.SYSTOLIC_BLOOD_PRESSURE and event.value > 150:
+        severity = AlertSeverity.HIGH
+
     return Alert(
         schema_version="1.0",
         alert_id=uuid4(),
         patient_id=event.patient_id,
         related_event_id=event.event_id,
         category=AlertCategory.ABNORMAL_MEASUREMENT,
-        severity=AlertSeverity.MEDIUM,
+        severity=severity,
         reason=AlertReason(
             code=f"{event.measurement_type.value}_{direction}_demo_threshold",
             message=(

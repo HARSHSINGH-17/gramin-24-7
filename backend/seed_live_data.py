@@ -77,7 +77,7 @@ def seed_database(allow_production: bool = False):
             {
                 "user_id": f"usr-admin-{uuid4().hex[:8]}",
                 "username": "admin",
-                "email": "admin@pahaadcare.local",
+                "email": "admin@gramin247.local",
                 "password": "DevAdminPassword2026!",
                 "role": "administrator",
                 "full_name": "Development Administrator",
@@ -85,16 +85,16 @@ def seed_database(allow_production: bool = False):
             {
                 "user_id": f"usr-clinician-{uuid4().hex[:8]}",
                 "username": "dr.sharma",
-                "email": "dr.sharma@pahaadcare.local",
-                "password": "DevDoctorPassword2026!",
+                "email": "dr.sharma@gramin247.local",
+                "password": "Sharma@Gramin2026",
                 "role": "clinician",
                 "full_name": "Dr. Sunita Sharma (CMO)",
             },
             {
                 "user_id": f"usr-clinician2-{uuid4().hex[:8]}",
                 "username": "clinician1",
-                "email": "clinician1@pahaadcare.local",
-                "password": "DevDoctorPassword2026!",
+                "email": "clinician1@gramin247.local",
+                "password": "demo-password-2026",
                 "role": "clinician",
                 "full_name": "Dr. Anil Rawat",
             },
@@ -118,86 +118,14 @@ def seed_database(allow_production: bool = False):
 
     # In production, DO NOT seed fictional demonstration patients!
     if is_production:
-        print("[PahaadCare Seeder] Production account provisioning complete. Fictional demo patients skipped.")
+        print("[Gramin 24*7 Seeder] Production account provisioning complete. Fictional demo patients skipped.")
         return
 
-    # Development / Test baseline patients
-    patients_to_seed = [
-        {
-            "patient_id": "PC-TEST001",
-            "display_name": "Test Patient Kamla",
-            "age": 62,
-            "gender": "Female",
-            "phone": "9812345678",
-            "village": "Majkhali",
-            "district": "Almora",
-            "status": "Active",
-            "vitals": [
-                (MeasurementType.HEART_RATE, 74.0, MeasurementUnit.BEATS_PER_MINUTE),
-                (MeasurementType.OXYGEN_SATURATION, 97.0, MeasurementUnit.PERCENT),
-                (MeasurementType.SYSTOLIC_BLOOD_PRESSURE, 122.0, MeasurementUnit.MMHG),
-                (MeasurementType.DIASTOLIC_BLOOD_PRESSURE, 78.0, MeasurementUnit.MMHG),
-                (MeasurementType.BODY_TEMPERATURE, 36.8, MeasurementUnit.CELSIUS),
-            ],
-        },
-        {
-            "patient_id": "PC-TEST002",
-            "display_name": "Test Patient Rajendra",
-            "age": 58,
-            "gender": "Male",
-            "phone": "9876543210",
-            "village": "Kausani Valley",
-            "district": "Bageshwar",
-            "status": "Active",
-            "vitals": [
-                (MeasurementType.HEART_RATE, 82.0, MeasurementUnit.BEATS_PER_MINUTE),
-                (MeasurementType.OXYGEN_SATURATION, 94.0, MeasurementUnit.PERCENT),
-                (MeasurementType.SYSTOLIC_BLOOD_PRESSURE, 138.0, MeasurementUnit.MMHG),
-                (MeasurementType.DIASTOLIC_BLOOD_PRESSURE, 88.0, MeasurementUnit.MMHG),
-                (MeasurementType.BODY_TEMPERATURE, 37.1, MeasurementUnit.CELSIUS),
-            ],
-        },
-    ]
-
-    now = datetime.now(timezone.utc)
-    for p in patients_to_seed:
-        patient = store.get_patient(p["patient_id"])
-        if not patient:
-            store.create_patient(
-                patient_id=p["patient_id"],
-                display_name=p["display_name"],
-                age=p["age"],
-                gender=p["gender"],
-                phone=p["phone"],
-                village=p["village"],
-                district=p["district"],
-                status=p["status"],
-                is_simulated=1,
-            )
-            print(f"  + Seeded test patient: {p['patient_id']} - {p['display_name']}")
-        else:
-            print(f"  ~ Patient already exists: {p['patient_id']}")
-
-        for i, (vtype, value, unit) in enumerate(p["vitals"]):
-            measured_time = now - timedelta(minutes=(i * 15 + 5))
-            event_id = uuid4()
-            event = MeasurementEvent(
-                event_id=event_id,
-                patient_id=p["patient_id"],
-                measurement_type=vtype,
-                value=value,
-                unit=unit,
-                measured_at=measured_time,
-                source=EventSource.HEALTH_WORKER,
-                is_simulated=True,
-                schema_version="1.0",
-            )
-            try:
-                store.submit(event, evaluate_alerts=True)
-            except Exception:
-                pass
-
-    print("[PahaadCare Seeder] Development seeding completed successfully!")
+    # Seed deterministic demonstration patients & vitals
+    from backend.app.demo_seeder import seed_demo_data
+    demo_result = seed_demo_data(store)
+    print(f"[Gramin 24*7 Seeder] Demo dataset seeded: {demo_result}")
+    return
 
 
 if __name__ == "__main__":

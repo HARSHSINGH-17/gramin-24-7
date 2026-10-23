@@ -12,9 +12,9 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "backend/app/auth.py": {
-    "mtime": 1792738286.9939518,
-    "seen": 1792740552.2017121,
-    "ast_hash": "08a9ba6e8511bba46b4a901cd603f5f8",
+    "mtime": 1792745669.3930311,
+    "seen": 1792752515.8136022,
+    "ast_hash": "4a404b979f89cb232789864fdeb9761a",
     "semantic_hash": ""
   },
   "backend/app/demo_dashboard.py": {
@@ -36,9 +36,9 @@
     "semantic_hash": "78370b4cf89c07c566750949af65e3d2"
   },
   "backend/app/main.py": {
-    "mtime": 1792741501.5060227,
-    "seen": 1792741838.7190704,
-    "ast_hash": "1d4415ae9e6f194256af04bfa94d8fd7",
+    "mtime": 1792747556.9642186,
+    "seen": 1792752515.813621,
+    "ast_hash": "8c9cb8540fcc1aae4d74fc1e5f51aa22",
     "semantic_hash": ""
   },
   "backend/app/models.py": {
@@ -48,15 +48,15 @@
     "semantic_hash": ""
   },
   "backend/app/monitoring.py": {
-    "mtime": 1792655719.8468893,
-    "seen": 1792667062.2224276,
-    "ast_hash": "88be3fc70bc54dd03364b764e738dbbe",
-    "semantic_hash": "88be3fc70bc54dd03364b764e738dbbe"
+    "mtime": 1792745914.15835,
+    "seen": 1792752515.8136253,
+    "ast_hash": "08bde97e097b08c3c01c82e2a435898c",
+    "semantic_hash": ""
   },
   "backend/app/repository.py": {
-    "mtime": 1792739168.313071,
-    "seen": 1792740552.2017298,
-    "ast_hash": "9be54efb985198f96a8bea3d428b92e9",
+    "mtime": 1792747522.0422823,
+    "seen": 1792752515.8136322,
+    "ast_hash": "26a3dd8c78642cb0318e4bd677f8072c",
     "semantic_hash": ""
   },
   "backend/app/store.py": {
@@ -150,15 +150,15 @@
     "semantic_hash": ""
   },
   "src/Login.jsx": {
-    "mtime": 1792741387.6318378,
-    "seen": 1792741838.719122,
-    "ast_hash": "40b9d81ca83f34a8e5666dcf815df266",
+    "mtime": 1792746551.6065567,
+    "seen": 1792752515.8136978,
+    "ast_hash": "449c5e6de2969379f4c619f47d1c92a0",
     "semantic_hash": ""
   },
   "src/RpmDashboard.jsx": {
-    "mtime": 1792711857.8713067,
-    "seen": 1792712099.343294,
-    "ast_hash": "02f1c361fc28f7e6ed3ff763fb084a68",
+    "mtime": 1792745985.5040488,
+    "seen": 1792752515.8137014,
+    "ast_hash": "691b2ea58c04a699c724ae0771799c71",
     "semantic_hash": ""
   },
   "src/main.jsx": {
@@ -384,15 +384,15 @@
     "semantic_hash": ""
   },
   "src/ClinicianLogin.jsx": {
-    "mtime": 1792741365.1805303,
-    "seen": 1792741838.7191195,
-    "ast_hash": "652fa11bcbe3513377ce5d0e51423c6c",
+    "mtime": 1792746139.9308963,
+    "seen": 1792752515.8136942,
+    "ast_hash": "5da9a610b78b786a0eaba97ebbdbef19",
     "semantic_hash": ""
   },
   "src/DoctorWorkspace.jsx": {
-    "mtime": 1792741334.747403,
-    "seen": 1792741838.719121,
-    "ast_hash": "9ff143e36303a396768f00b973946cdf",
+    "mtime": 1792746490.5797112,
+    "seen": 1792752515.8136961,
+    "ast_hash": "cfd7bfaa59e74062880cdcce6e7df1b2",
     "semantic_hash": ""
   },
   "src/PortalRouter.jsx": {
@@ -420,9 +420,9 @@
     "semantic_hash": ""
   },
   "src/components/DoctorTopbar.jsx": {
-    "mtime": 1792709462.354505,
-    "seen": 1792709976.4764276,
-    "ast_hash": "08d9457a77dfc53df9d385fc8930b6dd",
+    "mtime": 1792745971.9591913,
+    "seen": 1792752515.813709,
+    "ast_hash": "3a0825a4fa289f6f1e3deeebd6c0937f",
     "semantic_hash": ""
   },
   "src/components/PageHeader.jsx": {
@@ -516,15 +516,15 @@
     "semantic_hash": ""
   },
   "backend/app/postgres_repository.py": {
-    "mtime": 1792739192.788741,
-    "seen": 1792740552.201728,
-    "ast_hash": "c124bad00242ffe1da88b02ae9fec627",
+    "mtime": 1792747531.6569016,
+    "seen": 1792752515.81363,
+    "ast_hash": "fb0d476a5bc08605838c47e74bcbbf47",
     "semantic_hash": ""
   },
   "backend/seed_live_data.py": {
-    "mtime": 1792741593.2326362,
-    "seen": 1792741838.7190862,
-    "ast_hash": "9a41b0db2addc1cadfa8a59286f3d826",
+    "mtime": 1792745845.477682,
+    "seen": 1792752515.8136427,
+    "ast_hash": "8065bb9fc787a8b0ffd8829f99cbfcc9",
     "semantic_hash": ""
   },
   "backend/tests/test_live_database.py": {
@@ -540,9 +540,9 @@
     "semantic_hash": ""
   },
   "render.yaml": {
-    "mtime": 1792741642.691812,
-    "seen": 1792741838.7191854,
-    "ast_hash": "6da697412f65941f86bc7fb03f9ad38c",
+    "mtime": 1792746617.1311877,
+    "seen": 1792752515.8137918,
+    "ast_hash": "2cf1502f19dfe04be1947c453fc514e8",
     "semantic_hash": ""
   },
   "backend/migrate_sqlite_to_postgres.py": {
@@ -561,6 +561,18 @@
     "mtime": 1792739235.302421,
     "seen": 1792740552.2017596,
     "ast_hash": "46d34d53bd040f54f1ec83d26e9bd618",
+    "semantic_hash": ""
+  },
+  "backend/app/demo_seeder.py": {
+    "mtime": 1792747540.3515513,
+    "seen": 1792752515.8136103,
+    "ast_hash": "a736ebf970ebae0ba807ceaf90d8b507",
+    "semantic_hash": ""
+  },
+  "backend/tests/test_demo_mode.py": {
+    "mtime": 1792746980.965217,
+    "seen": 1792752515.813655,
+    "ast_hash": "296c476ea32783d1b45ee52c49961a8a",
     "semantic_hash": ""
   }
 }

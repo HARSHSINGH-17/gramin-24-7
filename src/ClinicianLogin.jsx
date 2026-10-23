@@ -95,16 +95,21 @@ export default function ClinicianLogin({ onLoginSuccess, onGoToPatientPortal }) 
   }
 
   const handleDemoSignIn = async () => {
-    setUsername('clinician1')
-    setPassword('demo-password-2026')
+    setUsername('dr.sharma')
+    setPassword('Sharma@Gramin2026')
     setError('')
-    setSuccessMsg('')
+    setSuccessMsg('Signing in as Dr. Sunita Sharma...')
     setLoading(true)
     try {
-      await loginClinician('clinician1', 'demo-password-2026')
+      await loginClinician('dr.sharma', 'Sharma@Gramin2026')
       if (onLoginSuccess) onLoginSuccess()
     } catch (err) {
-      setError(err.message || 'Failed to authenticate demo clinician.')
+      try {
+        await loginClinician('clinician1', 'demo-password-2026')
+        if (onLoginSuccess) onLoginSuccess()
+      } catch {
+        setError(err.message || 'Failed to authenticate demo clinician.')
+      }
     } finally {
       setLoading(false)
     }
@@ -117,7 +122,26 @@ export default function ClinicianLogin({ onLoginSuccess, onGoToPatientPortal }) 
           <HeartPulse size={32} />
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 10px',
+              borderRadius: '999px',
+              fontSize: '11px',
+              fontWeight: '700',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              background: '#fef3c7',
+              color: '#92400e',
+              border: '1px solid #fcd34d',
+            }}
+          >
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#d97706', display: 'inline-block' }} />
+            SIMULATED DATA — DEMO ONLY
+          </span>
           <span
             style={{
               display: 'inline-flex',

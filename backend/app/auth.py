@@ -36,8 +36,8 @@ class SecuritySettings:
     @classmethod
     def from_environment(cls) -> "SecuritySettings":
         environment = os.getenv("PAHAADCARE_ENV", "development").strip().lower()
-        if environment not in {"development", "test", "production"}:
-            raise ConfigurationError("PAHAADCARE_ENV must be development, test, or production")
+        if environment not in {"development", "test", "production", "demo", "staging"}:
+            raise ConfigurationError("PAHAADCARE_ENV must be development, test, production, demo, or staging")
 
         host = os.getenv("PAHAADCARE_HOST", "127.0.0.1").strip().lower()
         is_loopback = host in {"127.0.0.1", "localhost", "::1"}
@@ -64,6 +64,8 @@ class SecuritySettings:
 
         if environment == "production":
             demo_enabled = False
+        elif environment in {"demo", "staging"}:
+            demo_enabled = demo_requested if demo_value is not None else True
         else:
             if not is_loopback and (demo_requested or demo_value is not None):
                 raise ConfigurationError("Demo account cannot be enabled on non-loopback deployment host")
@@ -81,14 +83,14 @@ class SecuritySettings:
 
         demo_username = os.getenv("PAHAADCARE_DEMO_USERNAME")
         demo_password_hash = os.getenv("PAHAADCARE_DEMO_PASSWORD_HASH")
-        if demo_enabled and environment in {"development", "test"}:
+        if demo_enabled and environment in {"development", "test", "demo", "staging"}:
             if not demo_username:
-                demo_username = "clinician1"
+                demo_username = "dr.sharma"
             if not demo_password_hash:
-                demo_password_hash = hash_password("demo-password-2026")
+                demo_password_hash = hash_password("Sharma@Gramin2026")
         patient_ids = tuple(
             value.strip()
-            for value in os.getenv("PAHAADCARE_DEMO_PATIENT_IDS", "PC-SYNTH01,PC-DEMO01").split(",")
+            for value in os.getenv("PAHAADCARE_DEMO_PATIENT_IDS", "PC-SYNTH01,PC-DEMO01,PC-DEMO02,PC-DEMO03,PC-DEMO04,PC-DEMO05").split(",")
             if value.strip()
         )
         if demo_enabled and (not demo_username or not demo_password_hash):

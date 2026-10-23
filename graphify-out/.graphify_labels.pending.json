@@ -40,9 +40,12 @@
   "38": "test_security.py",
   "39": "vercel.json",
   "40": "alertsAndEscalation.test.js",
-  "41": "SyntheticScenario",
+  "41": "synthetic_vitals.py",
   "42": "MissingDataEvent",
   "43": "6. Execution Command Log & Pass Rates",
   "44": "datetime",
-  "45": "demo_dashboard.py"
+  "45": "demo_dashboard.py",
+  "46": "models.py",
+  "47": "Alert",
+  "48": "test_scenarios_are_reproducible"
 }

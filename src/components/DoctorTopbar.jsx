@@ -121,7 +121,7 @@ export default function DoctorTopbar({
         {/* Simulated data badge */}
         <span className="doc-badge doc-badge-simulated" title="Demonstration Mode: Synthetic Data Active">
           <span className="doc-pulsing-dot" aria-hidden="true" />
-          <span>SIMULATED DATA</span>
+          <span>SIMULATED DATA — DEMO ONLY</span>
         </span>
 
         {/* Truthful Network & Sync Status indicator button */}

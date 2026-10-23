@@ -1091,7 +1091,7 @@ export default function RpmDashboard({ onNavigate } = {}) {
         <div className="rpm-header-actions">
           <span className="rpm-simulated-badge">
             <span />
-            SIMULATED DATA
+            SIMULATED DATA — DEMO ONLY
           </span>
           {accessToken && (
             <button

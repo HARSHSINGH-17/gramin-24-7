@@ -279,6 +279,13 @@ class PostgresRepository:
             ).fetchone()
             return dict(row) if row else None
 
+    def update_user_password(self, user_id: str, password_hash: str) -> None:
+        with self._transaction() as conn:
+            conn.execute(
+                "UPDATE users SET password_hash = %s WHERE user_id = %s",
+                (password_hash, user_id),
+            )
+
     # ---------------- Patient Management ----------------
     def create_patient(
         self,

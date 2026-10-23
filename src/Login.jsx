@@ -6,11 +6,40 @@ const _ = React
 const i = { jsx, jsxs, Fragment }
 
 const hc = "pc-demo-accounts";
+const DEFAULT_DEMO_PATIENTS = [
+  { id: "PC-SYNTH01", name: "Kamla Devi", phone: "9812345678" },
+  { id: "PC-DEMO01", name: "Rajendra Prasad", phone: "9876543210" },
+  { id: "PC-DEMO02", name: "Anandi Joshi", phone: "9876543211" },
+  { id: "PC-DEMO03", name: "Mohan Singh Rawat", phone: "9876543212" },
+  { id: "PC-DEMO04", name: "Pooja Negi", phone: "9876543213" },
+  { id: "PC-DEMO05", name: "Vikram Negi", phone: "9876543214" },
+];
 function ic() {
   try {
-    return JSON.parse(localStorage.getItem(hc) || "[]");
+    const raw = localStorage.getItem(hc);
+    if (!raw) {
+      localStorage.setItem(hc, JSON.stringify(DEFAULT_DEMO_PATIENTS));
+      return DEFAULT_DEMO_PATIENTS;
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      localStorage.setItem(hc, JSON.stringify(DEFAULT_DEMO_PATIENTS));
+      return DEFAULT_DEMO_PATIENTS;
+    }
+    const ids = new Set(parsed.map((p) => p.id));
+    let updated = false;
+    for (const dp of DEFAULT_DEMO_PATIENTS) {
+      if (!ids.has(dp.id)) {
+        parsed.push(dp);
+        updated = true;
+      }
+    }
+    if (updated) {
+      localStorage.setItem(hc, JSON.stringify(parsed));
+    }
+    return parsed;
   } catch {
-    return [];
+    return DEFAULT_DEMO_PATIENTS;
   }
 }
 // ============ LOGIN / REGISTER SCREEN (create Patient ID, login) ============
@@ -69,6 +98,15 @@ function jf({ onLogin: k, onBack: oe }) {
       localStorage.setItem("pc-patient-name", JSON.stringify(Q.name)),
       k(Q.id, Q.name));
   }
+  function handleQuickDemo(dp) {
+    V(dp.id);
+    re(dp.phone);
+    Z("");
+    localStorage.setItem("pc-auth-user", JSON.stringify(dp.id));
+    localStorage.setItem("pc-patient-id", JSON.stringify(dp.id));
+    localStorage.setItem("pc-patient-name", JSON.stringify(dp.name));
+    k(dp.id, dp.name);
+  }
   return i.jsx("main", {
     style: Ve.page,
     children: i.jsxs("form", {
@@ -110,6 +148,73 @@ function jf({ onLogin: k, onBack: oe }) {
           style: Ve.subtitle,
           children: "Your health, your care, your community.",
         }),
+        i.jsx("div", {
+          style: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            padding: "4px 10px",
+            borderRadius: "999px",
+            fontSize: "11px",
+            fontWeight: "700",
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+            background: "#fef3c7",
+            color: "#92400e",
+            border: "1px solid #fcd34d",
+            marginBottom: "16px",
+          },
+          children: "SIMULATED DATA — DEMO ONLY",
+        }),
+        N === "login" &&
+          i.jsxs("div", {
+            style: {
+              background: "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              borderRadius: "10px",
+              padding: "12px",
+              marginBottom: "16px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+            },
+            children: [
+              i.jsx("span", {
+                style: { fontSize: "12px", fontWeight: "700", color: "#166534" },
+                children: "⚡ Quick Demo Patient (One-Click)",
+              }),
+              i.jsx("button", {
+                type: "button",
+                style: {
+                  padding: "8px 12px",
+                  background: "#16a34a",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                },
+                onClick: () => handleQuickDemo(DEFAULT_DEMO_PATIENTS[0]),
+                children: "Sign In as Kamla Devi (PC-SYNTH01)",
+              }),
+              i.jsx("button", {
+                type: "button",
+                style: {
+                  padding: "6px 10px",
+                  background: "#e2e8f0",
+                  color: "#334155",
+                  border: "none",
+                  borderRadius: "6px",
+                  fontSize: "12px",
+                  fontWeight: "500",
+                  cursor: "pointer",
+                },
+                onClick: () => handleQuickDemo(DEFAULT_DEMO_PATIENTS[1]),
+                children: "Or Sign In as Rajendra Prasad (PC-DEMO01)",
+              }),
+            ],
+          }),
         i.jsxs("div", {
           style: Ve.tabs,
           children: [

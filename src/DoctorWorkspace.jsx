@@ -18,6 +18,7 @@ import RpmDashboard, {
   readingStatus,
   formatAge,
 } from './RpmDashboard'
+import ClinicianLogin from './ClinicianLogin'
 import {
   getStoredToken,
   getStoredUser,
@@ -458,10 +459,21 @@ export default function DoctorWorkspace({
   }
 
 
-  // If unauthenticated: render RpmDashboard which handles the login gate
-  // with PROTECTED RPM WORKSPACE, SIMULATED DATA, username/password inputs, and zero data leakage.
+  // If unauthenticated: render dedicated ClinicianLogin gate with role guards
+  // and one-click demo login option.
   if (!token) {
-    return <RpmDashboard />
+    return (
+      <ClinicianLogin
+        onLoginSuccess={() => {
+          setToken(getStoredToken())
+          setUser(getStoredUser())
+        }}
+        onGoToPatientPortal={() => {
+          if (onNavigate) onNavigate('/patient')
+          else if (typeof window !== 'undefined') window.location.hash = '#/patient'
+        }}
+      />
+    )
   }
 
   // Filtered and Sorted patients for Directory view
@@ -703,7 +715,7 @@ export default function DoctorWorkspace({
             <div className="doc-meta-item">
               <span className="doc-badge doc-badge-info" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                 <ShieldCheck size={12} />
-                Synthetic / Demo Patient Record
+                SIMULATED DATA — DEMO ONLY
               </span>
             </div>
           </div>
@@ -1160,6 +1172,23 @@ export default function DoctorWorkspace({
               {backendInfo.online
                 ? `Live Telemetry Database: ${backendInfo.database.toUpperCase()} · Deployment Ready`
                 : 'Offline Demo Fallback'}
+            </span>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 12px',
+                borderRadius: '999px',
+                fontSize: '11.5px',
+                fontWeight: '700',
+                background: '#fef3c7',
+                color: '#92400e',
+                border: '1px solid #fcd34d',
+              }}
+            >
+              <ShieldCheck size={13} />
+              SIMULATED DATA — DEMO ONLY
             </span>
           </div>
 
@@ -1747,6 +1776,26 @@ export default function DoctorWorkspace({
               </button>
             }
           />
+
+          <div style={{ marginBottom: '16px' }}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 12px',
+                borderRadius: '999px',
+                fontSize: '11.5px',
+                fontWeight: '700',
+                background: '#fef3c7',
+                color: '#92400e',
+                border: '1px solid #fcd34d',
+              }}
+            >
+              <ShieldCheck size={13} />
+              SIMULATED DATA — DEMO ONLY
+            </span>
+          </div>
 
           <AlertsManager
             alerts={alerts}

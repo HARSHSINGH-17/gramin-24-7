@@ -612,6 +612,13 @@ class SQLiteRepository:
                 return None
             return dict(row)
 
+    def update_user_password(self, user_id: str, password_hash: str) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                "UPDATE users SET password_hash = ? WHERE user_id = ?",
+                (password_hash, user_id),
+            )
+
     def create_patient(
         self,
         patient_id: str,
