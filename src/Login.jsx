@@ -105,7 +105,7 @@ function jf({ onLogin: k, onBack: oe }) {
           children: "← Back to role selection",
         }),
         i.jsx("div", { style: Ve.logo, children: "♥" }),
-        i.jsx("h1", { children: "PahaadCare" }),
+        i.jsx("h1", { children: "Gramin 24*7" }),
         i.jsx("p", {
           style: Ve.subtitle,
           children: "Your health, your care, your community.",

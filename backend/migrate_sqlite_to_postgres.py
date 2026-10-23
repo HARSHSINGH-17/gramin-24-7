@@ -25,9 +25,9 @@ def migrate(sqlite_path: str, postgres_url: str):
     if postgres_url.startswith("postgres://"):
         postgres_url = postgres_url.replace("postgres://", "postgresql://", 1)
 
-    print(f"[PahaadCare Migrator] Source SQLite: {sqlite_file}")
+    print(f"[Gramin 24*7 Migrator] Source SQLite: {sqlite_file}")
     masked_url = postgres_url.split("@")[-1] if "@" in postgres_url else "configured-postgres"
-    print(f"[PahaadCare Migrator] Destination PostgreSQL: ...@{masked_url}")
+    print(f"[Gramin 24*7 Migrator] Destination PostgreSQL: ...@{masked_url}")
 
     # 1. Initialize PostgreSQL repository & schema
     pg_repo = PostgresRepository(postgres_url)

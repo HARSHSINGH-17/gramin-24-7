@@ -1,12 +1,12 @@
 databases:
-  - name: pahaadcare-postgres
-    databaseName: pahaadcare
-    user: pahaadcare_user
+  - name: gramin-247-postgres
+    databaseName: gramin247
+    user: gramin_user
     plan: free
 
 services:
   - type: web
-    name: pahaadcare-api
+    name: gramin-247-api
     runtime: python
     buildCommand: pip install -r backend/requirements.txt
     startCommand: python -m uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
@@ -15,7 +15,7 @@ services:
         value: production
       - key: DATABASE_URL
         fromDatabase:
-          name: pahaadcare-postgres
+          name: gramin-247-postgres
           property: connectionString
       - key: PAHAADCARE_AUTH_SECRET
         generateValue: true
@@ -24,7 +24,7 @@ services:
       - key: PAHAADCARE_DEMO_ENABLED
         value: "false"
       - key: PAHAADCARE_CORS_ORIGINS
-        value: "https://pahaadcare.vercel.app,https://pahaadcare.netlify.app"
+        value: "https://gramin-247.vercel.app,https://gramin-247.netlify.app,https://pahaadcare.vercel.app"
       - key: ESCALATION_WORKER_ENABLED
         value: "true"
       - key: ESCALATION_POLL_INTERVAL_SECONDS

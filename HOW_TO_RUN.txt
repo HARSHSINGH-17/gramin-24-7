@@ -1,4 +1,4 @@
-PahaadCare - run in VS Code (only 2 steps)
+Gramin 24*7 - run in VS Code (only 2 steps)
 
 1. Extract the zip, then in VS Code: File > Open Folder > select THIS folder (the one that contains package.json).
 2. Press Ctrl+Shift+B   (or open Terminal and type:  npm start)

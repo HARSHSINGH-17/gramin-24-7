@@ -33,7 +33,7 @@ def provision_user(username: str, email: str, role: str, full_name: str, passwor
 
     store = create_repository()
     backend_name = getattr(store, "backend_name", "sqlite")
-    print(f"[PahaadCare Provisioner] Connected to: {backend_name.upper()}")
+    print(f"[Gramin 24*7 Provisioner] Connected to: {backend_name.upper()}")
 
     existing = store.get_user_by_username_or_email(username) or store.get_user_by_username_or_email(email)
     if existing:

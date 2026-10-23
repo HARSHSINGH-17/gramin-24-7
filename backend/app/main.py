@@ -80,7 +80,7 @@ async def lifespan(app: FastAPI):
         await escalation_worker.stop()
 
 
-app = FastAPI(title="PahaadCare RPM API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Gramin 24*7 RPM API", version="1.0.0", lifespan=lifespan)
 is_token_revoked = lambda jti: store.is_token_revoked(jti)
 get_settings = lambda: settings
 cors_kwargs: dict[str, object] = {
@@ -261,7 +261,7 @@ async def request_size_limit(request: Request, call_next):
 def health() -> dict[str, str]:
     return {
         "status": "ok",
-        "service": "pahaadcare-rpm-api",
+        "service": "gramin-24-7-rpm-api",
         "api_version": "v1",
         "database": getattr(store, "backend_name", "sqlite"),
         "checked_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),

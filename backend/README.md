@@ -1,4 +1,4 @@
-# PahaadCare RPM Contract Backend
+# Gramin 24*7 RPM Contract Backend
 
 This is the local Phase 5 persistence and lifecycle layer. It uses SQLite only; it does not connect Firebase, MQTT, cloud services, or external authentication. It remains a synthetic hackathon prototype and is not a production clinical system.
 

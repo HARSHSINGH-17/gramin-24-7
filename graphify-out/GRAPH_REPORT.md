@@ -1,9 +1,9 @@
 # Graph Report - PahaadCare_Source_Code  (2026-10-23)
 
 ## Corpus Check
-- 87 files · ~111,198 words
+- 87 files · ~116,369 words
 - Verdict: corpus is large enough that graph structure adds value.
-- Unclassified: 10 file(s) not represented in the graph (top: .example 3, (none) 3, .bat 1)
+- Unclassified: 11 file(s) not represented in the graph (top: .example 3, (none) 3, .bat 2)
 
 ## Summary
 - 1188 nodes · 3434 edges · 46 communities (35 shown, 11 thin omitted)
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `82d14b37`
+- Built from commit: `1babe280`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -142,7 +142,7 @@ Nodes (46): 1. Test Environment & Verification Baseline, 2. 10-Scenario Reproduc
 
 ### Community 19 - "PahaadCare — Offline-First Remote Patient Monitoring (RPM) & Healthcare Platform"
 Cohesion: 0.12
-Nodes (16): 1. System Architecture & Components, 2. Installation & Quickstart, 3. Launching the Services, 4. Demonstration Accounts & Roles, 5. Automated Regression Test Suite, 6. Offline Queue & Escalation Behavior, 7. Known Prototype Limitations & Safety Boundaries, Multi-Tier Escalation Ladder (+8 more)
+Nodes (16): 1. System Architecture & Components, 2. Installation & Quickstart, 3. Launching the Services, 4. Demonstration Accounts & Roles, 5. Automated Regression Test Suite, 6. Offline Queue & Escalation Behavior, 7. Known Prototype Limitations & Safety Boundaries, Gramin 24*7 — Offline-First Remote Patient Monitoring (RPM) & Healthcare Platform (+8 more)
 
 ### Community 20 - "PostgresRepository"
 Cohesion: 0.12
@@ -170,7 +170,7 @@ Nodes (9): current_user(), decode_token(), hash_password(), require_role(), requ
 
 ### Community 27 - "PahaadCare RPM Contract Backend"
 Cohesion: 0.29
-Nodes (6): Deterministic synthetic demonstration, Local authentication setup, PahaadCare RPM Contract Backend, Run locally, Setup, Test
+Nodes (6): Deterministic synthetic demonstration, Gramin 24*7 RPM Contract Backend, Local authentication setup, Run locally, Setup, Test
 
 ### Community 28 - "test_milestone3_sync.py"
 Cohesion: 0.21
@@ -233,7 +233,7 @@ Nodes (5): build_demo_dashboard_snapshot(), _event_record(), _iso(), _quality_re
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `5. Per-Event Status Reconciliation` connect `PahaadCare RPM API Contract` to `offlineQueue.js`?**
-  _High betweenness centrality (0.345) - this node is a cross-community bridge._
+  _High betweenness centrality (0.349) - this node is a cross-community bridge._
 - **Are the 22 inferred relationships involving `SQLiteRepository` (e.g. with `EscalationEngine` and `Alert`) actually correct?**
   _`SQLiteRepository` has 22 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `@types/react`, `@types/react-dom`, `typescript` to the rest of the system?**
@@ -241,7 +241,7 @@ _Questions this graph is uniquely positioned to answer:_
 - **Should `SQLiteRepository` be split into smaller, more focused modules?**
   _Cohesion score 0.0801641586867305 - nodes in this community are weakly interconnected._
 - **Why does `getPendingEvents()` connect `offlineQueue.js` to `PahaadCare RPM API Contract`?**
-  _High betweenness centrality (0.323) - this node is a cross-community bridge._
+  _High betweenness centrality (0.327) - this node is a cross-community bridge._
 - **Are the 29 inferred relationships involving `MeasurementEvent` (e.g. with `MonitoringEngine` and `ProcessedEvent`) actually correct?**
   _`MeasurementEvent` has 29 INFERRED edges - model-reasoned connections that need verification._
 - **Should `Qf` be split into smaller, more focused modules?**

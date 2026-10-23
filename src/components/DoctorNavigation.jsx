@@ -72,7 +72,7 @@ export default function DoctorNavigation({
           <div className="doc-brand-mark">
             <HeartPulse size={20} />
           </div>
-          <span className="doc-brand-title">PahaadCare Doctor</span>
+          <span className="doc-brand-title">Gramin 24*7 Doctor</span>
         </div>
         <button
           type="button"
@@ -105,7 +105,7 @@ export default function DoctorNavigation({
               <HeartPulse size={22} />
             </div>
             <div>
-              <strong className="doc-brand-name">PahaadCare</strong>
+              <strong className="doc-brand-name">Gramin 24*7</strong>
               <small className="doc-brand-sub">CLINICIAN WORKSPACE</small>
             </div>
           </div>

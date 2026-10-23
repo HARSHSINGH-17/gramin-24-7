@@ -584,7 +584,7 @@ export default function DoctorWorkspace({
             <EmptyState
               icon={User}
               title="Patient does not exist"
-              message={`Patient ${activePatientId} could not be located in the PahaadCare RPM registry.`}
+              message={`Patient ${activePatientId} could not be located in the Gramin 24*7 RPM registry.`}
               action={
                 <button
                   type="button"

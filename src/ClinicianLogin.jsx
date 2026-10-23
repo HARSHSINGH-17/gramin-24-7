@@ -5,7 +5,7 @@ import { checkBackendHealth, loginClinician, registerUser } from './rpmApi'
 export default function ClinicianLogin({ onLoginSuccess, onGoToPatientPortal }) {
   const [activeTab, setActiveTab] = React.useState('login') // 'login' | 'register'
   const [username, setUsername] = React.useState('dr.sharma')
-  const [password, setPassword] = React.useState('Sharma@PahaadCare2026')
+  const [password, setPassword] = React.useState('Sharma@Gramin2026')
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState('')
   const [successMsg, setSuccessMsg] = React.useState('')
@@ -395,7 +395,7 @@ export default function ClinicianLogin({ onLoginSuccess, onGoToPatientPortal }) 
             ← Switch to Patient Portal
           </button>
           <p className="rpm-auth-disclaimer">
-            PahaadCare Highland Tele-Health Platform · Connected to Real Live Telemetry & PostgreSQL.
+            Gramin 24*7 Rural Tele-Health Platform · Connected to Real Live Telemetry & PostgreSQL.
           </p>
         </div>
       </div>

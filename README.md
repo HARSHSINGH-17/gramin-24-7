@@ -1,6 +1,6 @@
-# PahaadCare — Offline-First Remote Patient Monitoring (RPM) & Healthcare Platform
+# Gramin 24*7 — Offline-First Remote Patient Monitoring (RPM) & Healthcare Platform
 
-A demonstration Remote Patient Monitoring (RPM) and healthcare access Progressive Web Application (PWA) designed for remote and underserved Himalayan communities.
+A demonstration Remote Patient Monitoring (RPM) and healthcare access Progressive Web Application (PWA) designed for remote and underserved rural communities.
 
 > [!IMPORTANT]
 > **Hackathon Demonstration Prototype**
@@ -10,7 +10,7 @@ A demonstration Remote Patient Monitoring (RPM) and healthcare access Progressiv
 
 ## 1. System Architecture & Components
 
-PahaadCare is structured as a resilient, offline-first remote patient monitoring prototype:
+Gramin 24*7 is structured as a resilient, offline-first remote patient monitoring prototype:
 
 - **Frontend Application (React + Vite)**:
   - **Single-File Distribution**: Bundled using `vite-plugin-singlefile` into an inlined, self-contained `dist/index.html` suitable for offline distribution, field USB drives, or CDN edge deployment.

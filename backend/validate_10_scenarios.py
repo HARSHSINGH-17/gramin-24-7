@@ -70,7 +70,7 @@ def get_db_measurement(repo: SQLiteRepository, event_id: UUID):
 
 def run_validation():
     print("=" * 80)
-    print("PAHAADCARE RPM MILESTONE 4: 10-SCENARIO VALIDATION RUNNER")
+    print("GRAMIN 24*7 RPM MILESTONE 4: 10-SCENARIO VALIDATION RUNNER")
     print("=" * 80)
 
     # 1. Setup isolated database and environment

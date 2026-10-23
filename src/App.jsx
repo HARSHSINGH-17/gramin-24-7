@@ -234,7 +234,7 @@ function Af({ language: k, setLanguage: N, tr: h, onPatient: Y }) {
       className: "ob-screen",
       children: [
         i.jsx(jo, {}),
-        i.jsx("h1", { children: "PahaadCare" }),
+        i.jsx("h1", { children: "Gramin 24*7" }),
         i.jsx("p", { children: h("Care for the hills") }),
       ],
     });
@@ -782,8 +782,8 @@ function Qf() {
         "फ़ोन या नेटवर्क कनेक्शन ज़रूरी है।",
       "A small step toward connected care.":
         "जुड़ी हुई स्वास्थ्य सेवा की ओर एक छोटा कदम।",
-      "PahaadCare is a demonstration prototype. Listings and medical entries are sample data, not verified live services.":
-        "PahaadCare एक प्रदर्शन नमूना है। सूची और स्वास्थ्य जानकारी उदाहरण हैं, सत्यापित लाइव सेवाएँ नहीं।",
+      "Gramin 24*7 is a demonstration prototype. Listings and medical entries are sample data, not verified live services.":
+        "Gramin 24*7 एक प्रदर्शन नमूना है। सूची और स्वास्थ्य जानकारी उदाहरण हैं, सत्यापित लाइव सेवाएँ नहीं।",
       "Explore care": "इलाज के विकल्प देखें",
       "YOUR PERSONAL RECORD": "आपका निजी रिकॉर्ड",
       "Essential information, kept close even when the network isn’t.":
@@ -915,8 +915,8 @@ function Qf() {
       Details: "विवरण",
       "No matching demo listings. Try another search.":
         "इस खोज से मेल खाती सूची नहीं मिली। कोई और शब्द खोजें।",
-      "© 2026 PahaadCare · Built for communities in the hills":
-        "© 2026 PahaadCare · पहाड़ी समुदायों के लिए बनाया गया",
+      "© 2026 Gramin 24*7 · Built for communities in the hills":
+        "© 2026 Gramin 24*7 · ग्रामीण समुदायों के लिए बनाया गया",
       "Prototype · Sample data only": "प्रोटोटाइप · केवल नमूना डेटा",
       "PERSONAL DETAILS": "व्यक्तिगत जानकारी",
       "Edit health profile": "स्वास्थ्य प्रोफ़ाइल बदलें",
@@ -1092,12 +1092,12 @@ function Qf() {
       window.speechSynthesis.cancel();
       const c =
           je === "hi"
-            ? "पहाड़ के दूरस्थ क्षेत्रों के लिए पहाड़ केयर। आपकी सेहत, आपके करीब।"
+            ? "ग्रामीण क्षेत्रों के लिए ग्रामीण २४*७। आपकी सेहत, आपके करीब।"
             : je === "gar" || je === "kum"
-              ? "PahaadCare. Pahad ma sehat ki jaankari, aapka saath."
+              ? "Gramin 24*7. Gaon ma sehat ki jaankari, aapka saath."
               : je === "him"
-                ? "PahaadCare. Sehat di jaankari, tuhade naal."
-                : "PahaadCare. Care that reaches you. Your health, closer to home.",
+                ? "Gramin 24*7. Sehat di jaankari, tuhade naal."
+                : "Gramin 24*7. Care that reaches you. Your health, closer to home.",
         C = new SpeechSynthesisUtterance(c);
       ((C.lang = je === "en" ? "en-IN" : "hi-IN"),
         (C.rate = 0.88),
@@ -1800,7 +1800,7 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
       try {
         "Notification" in window &&
           Notification.permission === "granted" &&
-          new Notification("PahaadCare", { body: `${kt.name} · ${kt.time}` });
+          new Notification("Gramin 24*7", { body: `${kt.name} · ${kt.time}` });
       } catch {}
       return () => clearInterval(c);
     }, [kt]));
@@ -2301,7 +2301,7 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
         className: "ob-screen splash-screen",
         children: [
           i.jsx(jo, {}),
-          i.jsx("h1", { children: "PahaadCare" }),
+          i.jsx("h1", { children: "Gramin 24*7" }),
           i.jsx("p", { children: f("Care for the hills") }),
         ],
       })
@@ -2316,7 +2316,7 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
                   i.jsxs("button", {
                     className: "brand",
                     onClick: () => N("Overview"),
-                    "aria-label": "PahaadCare home",
+                    "aria-label": "Gramin 24*7 home",
                     children: [
                       i.jsx("span", {
                         className: "brand-mark",
@@ -2324,7 +2324,7 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
                       }),
                       i.jsxs("span", {
                         children: [
-                          i.jsx("strong", { children: "PahaadCare" }),
+                          i.jsx("strong", { children: "Gramin 24*7" }),
                           i.jsx("small", {
                             children: f("CARE THAT REACHES YOU"),
                           }),
@@ -2448,7 +2448,7 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
                             className: "brand-mark",
                             children: i.jsx(kr, { size: 19 }),
                           }),
-                          i.jsx("strong", { children: "PahaadCare" }),
+                          i.jsx("strong", { children: "Gramin 24*7" }),
                         ],
                       }),
                       i.jsxs("div", {
@@ -3044,7 +3044,7 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
                                 }),
                                 i.jsx("small", {
                                   children: f(
-                                    "PahaadCare is a demonstration prototype. Listings and medical entries are sample data, not verified live services.",
+                                    "Gramin 24*7 is a demonstration prototype. Listings and medical entries are sample data, not verified live services.",
                                   ),
                                 }),
                               ],
@@ -4458,7 +4458,7 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
                     children: [
                       i.jsx("span", {
                         children: f(
-                          "© 2026 PahaadCare · Built for communities in the hills",
+                          "© 2026 Gramin 24*7 · Built for communities in the hills",
                         ),
                       }),
                       i.jsxs("span", {
@@ -4491,7 +4491,7 @@ Name: ${ue.name}${ue.bloodGroup && localStorage.getItem("pc-bg-ok-" + h) === "1"
                                 className: "brand-mark",
                                 children: i.jsx(kr, { size: 19 }),
                               }),
-                              i.jsx("strong", { children: "PahaadCare" }),
+                              i.jsx("strong", { children: "Gramin 24*7" }),
                             ],
                           }),
                           i.jsx("button", {

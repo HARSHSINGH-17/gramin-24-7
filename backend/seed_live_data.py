@@ -40,7 +40,7 @@ def seed_database(allow_production: bool = False):
 
     store = create_repository()
     backend_name = getattr(store, "backend_name", "sqlite")
-    print(f"[PahaadCare Seeder] Environment: {env.upper()} | Backend: {backend_name.upper()}")
+    print(f"[Gramin 24*7 Seeder] Environment: {env.upper()} | Backend: {backend_name.upper()}")
 
     # Determine credentials
     if is_production:
